@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en" data-scheme="river" data-schemes="river">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>picoCTF: Shop · river</title>
+    <meta name="description" content="Learning Ghidra basics">
+    <meta name="author" content="river">
+    <link rel="canonical" href="https://rivers.sh/posts/picoctf-shop/">
+    <meta property="og:site_name" content="river">
+    <meta property="og:title" content="picoCTF: Shop">
+    <meta property="og:description" content="Learning Ghidra basics">
+    <meta property="og:url" content="https://rivers.sh/posts/picoctf-shop/">
+    <meta property="og:type" content="article">
+    <link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+    <link rel="alternate" type="application/atom+xml" title="river" href="/atom.xml">
+    <link rel="preload" href="/fonts/MesloLGS-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/syntax.css">
+    <script>
+    // Runs before first paint: restore the visitor's colour scheme and pick the
+    // background art, so neither flashes in after load.
+    (function () {
+      var d = document.documentElement;
+      try {
+        var s = localStorage.getItem("scheme");
+        if (s && d.getAttribute("data-schemes").split(" ").indexOf(s) !== -1) d.setAttribute("data-scheme", s);
+      } catch (e) {}
+      var art = ["/images/art/art1.jpg"];
+      if (!art.length) return;
+      var i = Math.floor(Math.random() * art.length);
+      try {
+        // don't show the same art twice in a row
+        var last = parseInt(localStorage.getItem("art-last"), 10);
+        if (art.length > 1 && i === last) i = (i + 1 + Math.floor(Math.random() * (art.length - 1))) % art.length;
+        localStorage.setItem("art-last", i);
+      } catch (e) {}
+      var a = typeof art[i] === "string" ? { src: art[i] } : art[i];
+      d.style.setProperty("--art", 'url("' + a.src + '")');
+      d.style.setProperty("--art-pos", a.position || "right bottom");
+      d.setAttribute("data-art", "");
+    })();
+    </script>
+</head>
+<body class="is-post">
+    <a class="skip-link" href="#main">skip to content</a>
+    <div class="page">
+        <header class="site-header">
+    <a class="site-title" href="/">river</a>
+    <nav class="site-nav" aria-label="site">
+        <ul><li><a href="/">home</a></li><li><a href="/blog/">blog</a></li><li><a href="/categories/">categories</a></li><li><a href="/tags/">tags</a></li><li><a href="/search/">search</a></li></ul>
+    </nav>
+</header>
+
+        <main id="main">
+<article class="post h-entry">
+    <header class="post-header">
+        <h1 class="post-title p-name">picoCTF: Shop</h1>
+        <!-- no whitespace between items: the "|" separators supply the spacing -->
+        <div class="post-meta"><time class="dt-published" datetime="2024-11-02">Nov 2, 2024</time><span>3 min read</span><span class="post-cats"><a href="/categories/ctf/">CTF</a> › <a href="/categories/ctf/picoctf2024/">picoCTF2024</a> › <a href="/categories/ctf/picoctf2024/medium/">Medium</a></span><span class="post-tags"><a class="p-category" href="/tags/reverse-engineering/">#Reverse Engineering</a> <a class="p-category" href="/tags/ghidra-basics/">#Ghidra Basics</a></span></div>
+        <p class="post-description p-summary">Learning Ghidra basics</p>
+    </header>
+
+    
+    <details class="toc toc-inline">
+        <summary>contents</summary>
+        <nav aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#connecting-to-the-netcat-listener">Connecting to the netcat listener</a></li><li class="toc-h2"><a href="#gathering-basic-information">Gathering basic information</a></li><li class="toc-h2"><a href="#analyzing-with-ghidra">Analyzing with Ghidra</a></li><li class="toc-h2"><a href="#solution">Solution</a></li></ol></nav>
+    </details>
+    
+
+    <div class="prose e-content" tabindex="-1">
+
+<h1 id="challenge-disclaimer">Challenge Disclaimer</h1>
+<p>For this challenge, I went way more in-depth than I had to, basically ALL of what I found wasn't useful for the beating the challenge, so if you want the actual solution, scroll to the bottom.</p>
+<h2 id="challenge-info"><a href="#challenge-info" class="anchor">#</a>Challenge Info</h2>
+<p>Best Stuff - Cheap Stuff, Buy Buy Buy... Store Instance: <a href="https://mercury.picoctf.net/static/d2c8c9ee59822de6776dd8f20af63b91/source" target="_blank" rel="noopener">source</a>. The shop is open for business at <code>nc mercury.picoctf.net 34938</code>.</p>
+<h2 id="connecting-to-the-netcat-listener"><a href="#connecting-to-the-netcat-listener" class="anchor">#</a>Connecting to the netcat listener</h2>
+<pre class="terminal"><code>&gt; nc mercury.picoctf.net 34938
+Thislcome to the market!
+=====================
+You have 40 coins
+	Item		Price	Count
+(0) Quiet Quiches	10	12
+(1) Average Apple	15	8
+(2) Fruitful Flag	100	1
+(3) Sell an Item
+(4) Exit
+Choose an option:</code></pre>
+<p>So, we have to figure out some sort of way to exploit this online "shop" (hence the challenge name). Since this is a reverse engineering challenge, let's do some simple reconnaissance on the <code>source</code> file we're given.</p>
+<h2 id="gathering-basic-information"><a href="#gathering-basic-information" class="anchor">#</a>Gathering basic information</h2>
+<pre class="terminal"><code>&gt; file source
+source: ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), statically linked, Go BuildID=-vzeqZwk-BVPkjaCfBwI/0p7moXHKZKzCRDvyyGAW/qBY3Sw8xC5RQBA2lE1Ni/wve_VYHzkLpmj9h9LR5b, with debug_info, not stripped</code></pre>
+<p>What this tells us about <code>source</code>:</p>
+<ul>
+<li>32-bit file</li>
+<li>ELF (Executable and Linkable Format) binary</li>
+<li>LSB refers to Little Endian, so the least significant bytes are stored first, which is typical for Intel architectures</li>
+<li>Statically linked, so the binary includes all its dependencies and libraries within itself, meaning it's all self-contained</li>
+<li>Not stripped, so it shouldn't be missing any symbols or debugging information, making it easier to reverse engineer</li>
+</ul>
+<h2 id="analyzing-with-ghidra"><a href="#analyzing-with-ghidra" class="anchor">#</a>Analyzing with Ghidra</h2>
+<p>Let's put it through a reverse engineering tool, I'll be <a href="https://ghidra-sre.org/" target="_blank" rel="noopener">Ghidra</a> for this writeup, but you're welcome to use whatever you prefer:</p>
+<ol type="1">
+<li>Open Ghidra</li>
+<li>Make a temporary project</li>
+<li>Import the file into the project</li>
+<li>Double click the file, select "open in default tool"</li>
+</ol>
+<p>The first thing I like to do is check the Symbol Tree, a hierarchical structure that displays symbols (functions, variables, classes, basically anything that's an important identifier) within the analyzed binary. This is an important thing to know, as it'll help you efficiently analyze.</p>
+<p><img src="/images/shop/get_flag.png" alt="get flag" /></p>
+<p>Instantly, we notice a function, <code>get_flag</code>. This can double click it to further investigate:</p>
+<pre><code>
+void main.get_flag(void)
+
+{
+  int *in_GS_OFFSET;
+  undefined4 local_30;
+  undefined4 local_2c;
+  undefined local_1c [12];
+  undefined *local_10;
+  undefined **local_c;
+  undefined4 local_8;
+  undefined4 local_4;
+
+  while (&amp;stack0x00000000 &lt;= *(undefined **)(*(int *)(*in_GS_OFFSET + -4) + 8)) {
+    local_4 = 0x80d453e;
+    runtime.morestack_noctxt();
+  }
+  io/ioutil.ReadFile(&amp;DAT_080fd683,8);
+  main.check(local_30,local_2c);
+  local_8 = 0;
+  local_4 = 0;
+  local_10 = &amp;DAT_080e87c0;
+  local_c = &amp;main.statictmp_14;
+  runtime.convT2Eslice(&amp;DAT_080e2e20,local_1c);
+  fmt.Println(&amp;local_10,2,2);
+  os.Exit(0);
+  return;
+}</code></pre>
+<p>Some things to note:</p>
+<ul>
+<li><code>io/ioutil.ReadFile</code>, <code>fmt.Println</code>, and <code>os.</code> seem unusual for C, after some further research, I learned that:
+<ul>
+<li>All these functions originate from the <a href="https://en.wikipedia.org/wiki/Go_(programming_language)" target="_blank" rel="noopener">Go</a> programming language</li>
+<li><code>io/ioutil.ReadFile</code> is for reading files</li>
+<li><code>fmt.Println</code> is for printing to standard output</li>
+<li><code>os.exit</code> is for exiting the program</li>
+</ul></li>
+</ul>
+<p>So, it's clear that this is what reads our flag, if we can somehow call this, we'll have our flag.</p>
+<p>Let's try and get the address for the <code>get_flag</code> function, we can do this by right-clicking <code>get_flag</code> in the symbol tree, and selecting "Show references to". The one we want to pay attention to is the "call", it should display that the location of it is <code>080d3ec3</code>.</p>
+<h2 id="solution"><a href="#solution" class="anchor">#</a>Solution</h2>
+<p>So, this challenge is a bit too easy for it's own good. The actual solution is to just buy negative items to increase our coins, and then buy the flag.</p>
+<pre class="terminal"><code>&gt; nc mercury.picoctf.net 34938
+Thislcome to the market!
+=====================
+You have 40 coins
+	Item		Price	Count
+(0) Quiet Quiches	10	12
+(1) Average Apple	15	8
+(2) Fruitful Flag	100	1
+(3) Sell an Item
+(4) Exit
+Choose an option:
+0
+How many do you want to buy?
+-20
+You have 240 coins
+	Item		Price	Count
+(0) Quiet Quiches	10	32
+(1) Average Apple	15	8
+(2) Fruitful Flag	100	1
+(3) Sell an Item
+(4) Exit
+Choose an option:
+2
+How many do you want to buy?
+1
+Flag is:  [112 105 99 111 67 84 70 123 98 52 100 95 98 114 111 103 114 97 109 109 101 114 95 98 97 54 98 56 99 100 102 125]</code></pre>
+<p>Our flag is given to us in an encrypted format, so let's run it through <a href="https://gchq.github.io/CyberChef/#recipe=Magic(3,false,false,&#39;&#39;)&amp;input=MTEyIDEwNSA5OSAxMTEgNjcgODQgNzAgMTIzIDk4IDUyIDEwMCA5NSA5OCAxMTQgMTExIDEwMyAxMTQgOTcgMTA5IDEwOSAxMDEgMTE0IDk1IDk4IDk3IDU0IDk4IDU2IDk5IDEwMCAxMDIgMTI1" target="_blank" rel="noopener">Cyberchef</a> using the <code>Magic</code> recipe (make sure to remove the brackets!).</p>
+<p>flag: <code>picoCTF{b4d_brogrammer_ba6b8cdf}</code></p>
+
+    </div>
+
+    <nav class="post-nav" aria-label="more posts">
+        <a class="prev" href="/posts/picoctf-crackmepy/" rel="prev"><span class="post-nav-label">‹ older</span>picoCTF: Crackme-py</a>
+        <a class="next" href="/posts/picoctf-weirdsnake/" rel="next"><span class="post-nav-label">newer ›</span>PicoCTF: Weird Snake</a>
+    </nav>
+</article>
+
+<aside class="post-aside" aria-label="on this page">
+    <ul class="aside-actions">
+        <li><a href="/posts/picoctf-crackmepy/" title="older: picoCTF: Crackme-py" aria-label="older post">‹</a></li>
+        <li><a href="/posts/picoctf-weirdsnake/" title="newer: PicoCTF: Weird Snake" aria-label="newer post">›</a></li>
+        <li><a href="#top" class="to-top" title="back to top" aria-label="back to top">↑</a></li>
+    </ul>
+    <nav class="toc toc-side" aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#connecting-to-the-netcat-listener">Connecting to the netcat listener</a></li><li class="toc-h2"><a href="#gathering-basic-information">Gathering basic information</a></li><li class="toc-h2"><a href="#analyzing-with-ghidra">Analyzing with Ghidra</a></li><li class="toc-h2"><a href="#solution">Solution</a></li></ol></nav>
+</aside>
+
+        </main>
+        <footer class="site-footer">
+    <span class="footer-left">
+        <span>&copy; 2024–2026 river</span>
+        <button type="button" class="contact-button" aria-controls="toast" data-label="email" data-value="bG92ZS5yaXZlcnNAcHJvdG9uLm1l">email</button><button type="button" class="contact-button" aria-controls="toast" data-label="signal" data-value="cml2LjEzMzc=">signal</button>
+    </span>
+    <span class="footer-links">
+        <a href="/atom.xml">atom</a>
+        <button type="button" class="scheme-toggle" title="switch colour scheme">scheme: <span class="scheme-name">river</span></button>
+    </span>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</footer>
+
+    </div>
+    <script src="/js/main.js" defer></script>
+    
+    
+    <script>
+    // oneko chases the cursor, so skip it on touch screens
+    (function () {
+      if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+      var s = document.createElement("script");
+      s.src = "/js/oneko.js";
+      document.body.appendChild(s);
+    })();
+    </script>
+    
+</body>
+</html>

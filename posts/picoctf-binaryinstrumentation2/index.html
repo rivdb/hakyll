@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en" data-scheme="river" data-schemes="river">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>picoCTF: Binary Instrumentation II · river</title>
+    <meta name="description" content="Intercepting &amp; monitoring Windows API calls to find a flag in a hidden buffer">
+    <meta name="author" content="river">
+    <link rel="canonical" href="https://rivers.sh/posts/picoctf-binaryinstrumentation2/">
+    <meta property="og:site_name" content="river">
+    <meta property="og:title" content="picoCTF: Binary Instrumentation II">
+    <meta property="og:description" content="Intercepting &amp; monitoring Windows API calls to find a flag in a hidden buffer">
+    <meta property="og:url" content="https://rivers.sh/posts/picoctf-binaryinstrumentation2/">
+    <meta property="og:type" content="article">
+    <link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+    <link rel="alternate" type="application/atom+xml" title="river" href="/atom.xml">
+    <link rel="preload" href="/fonts/MesloLGS-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/syntax.css">
+    <script>
+    // Runs before first paint: restore the visitor's colour scheme and pick the
+    // background art, so neither flashes in after load.
+    (function () {
+      var d = document.documentElement;
+      try {
+        var s = localStorage.getItem("scheme");
+        if (s && d.getAttribute("data-schemes").split(" ").indexOf(s) !== -1) d.setAttribute("data-scheme", s);
+      } catch (e) {}
+      var art = ["/images/art/art1.jpg"];
+      if (!art.length) return;
+      var i = Math.floor(Math.random() * art.length);
+      try {
+        // don't show the same art twice in a row
+        var last = parseInt(localStorage.getItem("art-last"), 10);
+        if (art.length > 1 && i === last) i = (i + 1 + Math.floor(Math.random() * (art.length - 1))) % art.length;
+        localStorage.setItem("art-last", i);
+      } catch (e) {}
+      var a = typeof art[i] === "string" ? { src: art[i] } : art[i];
+      d.style.setProperty("--art", 'url("' + a.src + '")');
+      d.style.setProperty("--art-pos", a.position || "right bottom");
+      d.setAttribute("data-art", "");
+    })();
+    </script>
+</head>
+<body class="is-post">
+    <a class="skip-link" href="#main">skip to content</a>
+    <div class="page">
+        <header class="site-header">
+    <a class="site-title" href="/">river</a>
+    <nav class="site-nav" aria-label="site">
+        <ul><li><a href="/">home</a></li><li><a href="/blog/">blog</a></li><li><a href="/categories/">categories</a></li><li><a href="/tags/">tags</a></li><li><a href="/search/">search</a></li></ul>
+    </nav>
+</header>
+
+        <main id="main">
+<article class="post h-entry">
+    <header class="post-header">
+        <h1 class="post-title p-name">picoCTF: Binary Instrumentation II</h1>
+        <!-- no whitespace between items: the "|" separators supply the spacing -->
+        <div class="post-meta"><time class="dt-published" datetime="2025-05-02">May 2, 2025</time><span>6 min read</span><span class="post-cats"><a href="/categories/ctf/">CTF</a> › <a href="/categories/ctf/picoctf2024/">picoCTF2024</a> › <a href="/categories/ctf/picoctf2024/medium/">Medium</a></span><span class="post-tags"><a class="p-category" href="/tags/reverse-engineering/">#Reverse Engineering</a> <a class="p-category" href="/tags/frida/">#Frida</a> <a class="p-category" href="/tags/binary-instrumentation/">#Binary Instrumentation</a> <a class="p-category" href="/tags/javascript/">#JavaScript</a> <a class="p-category" href="/tags/windows-api/">#Windows API</a></span></div>
+        <p class="post-description p-summary">Intercepting & monitoring Windows API calls to find a flag in a hidden buffer</p>
+    </header>
+
+    
+    <details class="toc toc-inline">
+        <summary>contents</summary>
+        <nav aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#basic-forensics--info">Basic forensics &amp; info</a></li><li class="toc-h2"><a href="#frida-trace-exploration">Frida-trace exploration</a></li><li class="toc-h3"><a href="#overkill-frida-trace">Overkill frida-trace</a></li><li class="toc-h3"><a href="#specific-frida-trace">Specific frida-trace</a></li><li class="toc-h2"><a href="#modifying-handlers">Modifying handlers</a></li><li class="toc-h3"><a href="#createfilea-modifications">CreateFileA modifications</a></li><li class="toc-h3"><a href="#writefile-modification--solution">WriteFile modification &amp; solution</a></li></ol></nav>
+    </details>
+    
+
+    <div class="prose e-content" tabindex="-1">
+
+<h2 id="challenge-info"><a href="#challenge-info" class="anchor">#</a>Challenge Info</h2>
+<p>I've been learning more Windows API functions to do my bidding. Hmm... I swear this program was supposed to create a file and write the flag directly to the file. Can you try and intercept the file writing function to see what went wrong?</p>
+<p>Download the exe <a href="https://challenge-files.picoctf.net/c_verbal_sleep/4aee1b9778a8e56724d015b027431fb236853a94f53e5dcf32c5ed32aed404da/bininst2.zip" target="_blank" rel="noopener">here</a>. Unzip the archive with the password <code>picoctf</code></p>
+<h2 id="basic-forensics--info"><a href="#basic-forensics--info" class="anchor">#</a>Basic forensics &amp; info</h2>
+<pre><code>C:\Users\river\Desktop\ctf\pico\BinaryInstrumentation2&gt;file bininst2.exe
+bininst2.exe: PE32+ executable (console) x86-64, for MS Windows
+
+FLARE-VM Sun 05/04/2025  4:11:07.21</code></pre>
+<p><code>file</code> doesn't yield anything unexpected/unusual. Additionally, the program produces no output when ran:</p>
+<pre><code>C:\Users\river\Desktop\ctf\pico\BinaryInstrumentation2&gt;bininst2.exe
+
+FLARE-VM Sun 05/04/2025  4:11:48.40</code></pre>
+<h2 id="frida-trace-exploration"><a href="#frida-trace-exploration" class="anchor">#</a>Frida-trace exploration</h2>
+<p>A logical attempt would be to run the same <code>frida-trace</code> command as used in the previous challenge, in which we'd target the <code>Sleep</code> call and then inspect <code>Sleep.js</code> for anything odd. However, this is not the case with this challenge, as the <code>Sleep.js</code> in both DLL folders looks normal.</p>
+<h3 id="overkill-frida-trace"><a href="#overkill-frida-trace" class="anchor">#</a>Overkill frida-trace</h3>
+<pre><code>frida-trace -f bininst2.exe -i &quot;*&quot;</code></pre>
+<ul>
+<li>Traces <em>ALL</em> API calls from every library</li>
+<li><code>-i "*"</code> means intercept everything</li>
+</ul>
+<p>This <code>frida-trace</code> command may look good at a glance, as it traces everything, but this actually works against us. The reason being, is that 99% of the handlers aren't relevant to solving the challenge, and this will just lead to information overload.</p>
+<h3 id="specific-frida-trace"><a href="#specific-frida-trace" class="anchor">#</a>Specific frida-trace</h3>
+<p>Knowing that this is a CTF, it's possible the flag is being written/read from a file, so we can try something like this:</p>
+<pre><code>frida-trace -i *File* -f bininst2.exe -X KERNEL32</code></pre>
+<ul>
+<li>Only traces APIs that contain "File" in their name (<code>CreateFile</code>, <code>ReadFile</code>, <code>WriteFile</code>)</li>
+<li><code>-X KERNEL32</code> excludes <code>KERNDEL32.dll</code> APIs</li>
+</ul>
+<p>This command, unlike the previous one, is much more focused and less noisy, as it focuses our scope on only the necessary.</p>
+<h2 id="modifying-handlers"><a href="#modifying-handlers" class="anchor">#</a>Modifying handlers</h2>
+<pre><code>C:\Users\river\Desktop\ctf\pico\BinaryInstrumentation2&gt;frida-trace -i *File* -f bininst2.exe -X KERNEL32
+Instrumenting...
+
+...
+
+Started tracing 547 functions. Web UI available at http://localhost:51013/
+           /* TID 0x18bc */
+   501 ms  NtDeviceIoControlFile()
+   501 ms  RtlDosApplyFileIsolationRedirection_Ustr()
+   501 ms  RtlDosApplyFileIsolationRedirection_Ustr()
+   501 ms  RtlDosApplyFileIsolationRedirection_Ustr()
+   501 ms  NtQueryAttributesFile()
+   501 ms  NtQueryAttributesFile()
+   501 ms  NtOpenFile()
+   501 ms  RtlDosApplyFileIsolationRedirection_Ustr()
+   511 ms  GetSystemTimeAsFileTime()
+   511 ms     | GetSystemTimeAsFileTime()
+   511 ms  GetModuleFileNameW()
+   511 ms     | GetModuleFileNameW()
+   511 ms  AreFileApisANSI()
+   511 ms     | AreFileApisANSI()
+   511 ms  CreateFileA()
+   511 ms     | CreateFileA()
+Process terminated
+
+FLARE-VM Sun 05/04/2025  4:46:25.91</code></pre>
+<p>The output shows us that the program is utilizing <code>CreateFileA()</code>. However, upon inspecting <code>CreateFileA()</code> we see a very basic configuration, before modifying it to try and get more information, it's important to understand what we <em>can</em> do:</p>
+<p>A quick search led me to <a href="https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilea" target="_blank" rel="noopener">this</a> Microsoft page, which shows the syntax for the <code>CreateFileA</code> function. I'll also leave it below for your convenience:</p>
+<pre><code>HANDLE CreateFileA(
+  [in]           LPCSTR                lpFileName,
+  [in]           DWORD                 dwDesiredAccess,
+  [in]           DWORD                 dwShareMode,
+  [in, optional] LPSECURITY_ATTRIBUTES lpSecurityAttributes,
+  [in]           DWORD                 dwCreationDisposition,
+  [in]           DWORD                 dwFlagsAndAttributes,
+  [in, optional] HANDLE                hTemplateFile
+);</code></pre>
+<h3 id="createfilea-modifications"><a href="#createfilea-modifications" class="anchor">#</a>CreateFileA modifications</h3>
+<p>1st <code>CreateFileA</code> modification:</p>
+<pre><code>defineHandler({
+  onEnter(log, args, state) {
+    // Log the filename being created
+    state.filename = Memory.readUtf8String(args[0]);
+    log(&#39;CreateFileA called with filename: &quot;&#39; + state.filename + &#39;&quot;&#39;);
+  },
+  
+  onLeave(log, retval, state) {
+    // Log the result
+    log(&#39;CreateFileA returned: &#39; + retval);
+  }
+});</code></pre>
+<ul>
+<li>We read the filename string from <code>args[0]</code> (first argument to CreateFileA) and log it</li>
+<li>We store the filename in <code>state</code> so we can reference it in the onLeave function</li>
+<li>We log the handle returned by <code>CreateFileA</code> to see if it succeeded or failed</li>
+<li>If the handle is <code>-1</code> (<code>INVALID_HANDLE_VALUE</code>), we know file creation failed</li>
+<li>This tells us whether the path is valid and if file creation is working properly</li>
+</ul>
+<p>Output:</p>
+<pre><code>frida-trace -i CreateFileA -f bininst2.exe -X KERNEL32
+
+Started tracing 4 functions. Web UI available at http://localhost:64949/
+           /* TID 0x1a40 */
+    19 ms  CreateFileA()
+    19 ms     | CreateFileA called with filename: &quot;&lt;Insert path here&gt;&quot;
+    19 ms  CreateFileA returned: 0xffffffffffffffff
+Process terminated```</code></pre>
+<ul>
+<li>The program is calling <code>CreateFileA</code> with an invalid filename: ``"<Insert path here>"` - this is clearly a placeholder that wasn't properly replaced with a real path</li>
+<li><code>CreateFileA</code> returned <code>0xffffffffffffffff</code>, which is <code>-1</code> or <code>INVALID_HANDLE_VALUE</code>, confirming that file creation failed</li>
+<li>The process terminated right after this, suggesting that the flag is being processed but never successfully written to a file</li>
+</ul>
+<p>This lead me to further edit <code>CreateFileA</code>, but this time, let's try replacing "<Insert path here>" with a valid filename ("flag.txt")</p>
+<p>2nd <code>CreateFileA</code> modification:</p>
+<pre><code>defineHandler({
+  onEnter(log, args, state) {
+    // Read original filename
+    state.originalPath = Memory.readUtf8String(args[0]);
+    log(&#39;CreateFileA - Original path: &quot;&#39; + state.originalPath + &#39;&quot;&#39;);
+    
+    // Replace the invalid path with a valid one
+    const newPath = Memory.allocUtf8String(&#39;flag.txt&#39;);
+    args[0] = newPath;
+    
+    // Save reference to prevent garbage collection
+    state.newPath = newPath;
+    
+    log(&#39;CreateFileA - Replaced with: &quot;flag.txt&quot;&#39;);
+  },
+  
+  onLeave(log, retval, state) {
+    log(&#39;CreateFileA returned: &#39; + retval);
+  }
+});</code></pre>
+<p>Output:</p>
+<pre><code>frida-trace -i CreateFileA -f bininst2.exe -X KERNEL32
+
+Started tracing 2 functions. Web UI available at http://localhost:49254/
+           /* TID 0xb4c */
+    20 ms  CreateFileA()
+    20 ms     | CreateFileA - Original path: &quot;&lt;Insert path here&gt;&quot;
+    20 ms     | CreateFileA - Replaced with: &quot;flag.txt&quot;
+    20 ms  CreateFileA returned: 0x274
+Process terminated</code></pre>
+<p>However, upon checking the newly created <code>flag.txt</code>, you'll notice it's empty... but this is okay. Since <code>CreateFileA</code> is succeeding, that means it has to be calling <code>WriteFile</code>. So, let's try modifying the <code>WriteFile</code> handler to see if we can intercept the data it's attempting to write.</p>
+<h3 id="writefile-modification--solution"><a href="#writefile-modification--solution" class="anchor">#</a>WriteFile modification &amp; solution</h3>
+<p>We can set up a <code>WriteFile</code> handler to try and intercept the flag:</p>
+<p><code>WriteFile</code> syntax:</p>
+<div class="sourceCode" id="cb11"><pre class="sourceCode c++"><code class="sourceCode cpp"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>BOOL WriteFile<span class="op">(</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>  <span class="op">[</span>in<span class="op">]</span>                HANDLE       hFile<span class="op">,</span></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>  <span class="op">[</span>in<span class="op">]</span>                LPCVOID      lpBuffer<span class="op">,</span></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>  <span class="op">[</span>in<span class="op">]</span>                DWORD        nNumberOfBytesToWrite<span class="op">,</span></span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>  <span class="op">[</span>out<span class="op">,</span> optional<span class="op">]</span>     LPDWORD      lpNumberOfBytesWritten<span class="op">,</span></span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>  <span class="op">[</span>in<span class="op">,</span> out<span class="op">,</span> optional<span class="op">]</span> LPOVERLAPPED lpOverlapped</span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a><span class="op">);</span></span></code></pre></div>
+<p><code>WriteFile.js</code> modification:</p>
+<pre><code>{
+  onEnter(log, args, state) {
+    // Log basic info
+    log(&#39;WriteFile called with handle: &#39; + args[0]);
+    log(&#39;WriteFile buffer content:&#39;);
+    log(hexdump(args[1]));
+  },
+  
+  onLeave(log, retval, state) {
+    // Log result
+    log(&#39;WriteFile returned: &#39; + retval);
+  }
+}</code></pre>
+<ul>
+<li>We're trying to examine the data that would be written to the file using <code>lpBuffer</code></li>
+<li>We're logging the file handle &amp; return value to track success/failure</li>
+</ul>
+<p>Output:</p>
+<pre><code>frida-trace -i CreateFileA -i WriteFile -f bininst2.exe -X KERNEL32
+
+Instrumenting...
+CreateFileA: Loaded handler at &quot;C:\Users\river\Desktop\ctf\pico\BinaryInstrumentation2\__handlers__\KERNELBASE.dll\CreateFileA.js&quot;
+WriteFile: Loaded handler at &quot;C:\Users\river\Desktop\ctf\pico\BinaryInstrumentation2\__handlers__\KERNELBASE.dll\WriteFile.js&quot;
+CreateFileA: Loaded handler at &quot;C:\Users\river\Desktop\ctf\pico\BinaryInstrumentation2\__handlers__\KERNEL32.DLL\CreateFileA.js&quot;
+WriteFile: Loaded handler at &quot;C:\Users\river\Desktop\ctf\pico\BinaryInstrumentation2\__handlers__\KERNEL32.DLL\WriteFile.js&quot;
+Started tracing 4 functions. Web UI available at http://localhost:49342/
+           /* TID 0x1838 */
+    20 ms  CreateFileA()
+    20 ms     | CreateFileA - Original path: &quot;&lt;Insert path here&gt;&quot;
+    20 ms     | CreateFileA - Replaced with: &quot;flag.txt&quot;
+    20 ms  CreateFileA returned: 0x270
+    20 ms  WriteFile()
+    20 ms     | WriteFile called with handle: 0x270
+    20 ms     | WriteFile buffer content:
+    20 ms     |             0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F  0123456789ABCDEF
+140002270  63 47 6c 6a 62 30 4e 55 52 6e 74 6d 63 6a 46 6b  cGljb0NURntmcjFk
+140002280  59 56 39 6d 4d 48 4a 66 59 6a 46 75 58 32 6c 75  YV9mMHJfYjFuX2lu
+140002290  4e 58 52 79 64 57 30 7a 62 6e 51 30 64 47 6c 76  NXRydW0zbnQ0dGlv
+1400022a0  62 69 46 66 59 6a 49 78 59 57 56 6d 4d 7a 6c 39  biFfYjIxYWVmMzl9
+1400022b0  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  ................
+1400022c0  40 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00  @...............
+1400022d0  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  ................
+1400022e0  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  ................
+1400022f0  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  ................
+140002300  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  ................
+140002310  00 00 00 00 00 00 00 00 00 30 00 40 01 00 00 00  .........0.@....
+140002320  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  ................
+140002330  a0 21 00 40 01 00 00 00 b0 21 00 40 01 00 00 00  .!.@.....!.@....
+140002340  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  ................
+140002350  00 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00  ................
+140002360  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  ................
+    20 ms  WriteFile returned: 0x1
+Process terminated</code></pre>
+<p>Looks like it could be a flag encoded via base64, let's try and decode it:</p>
+<pre><code>[marcial@arch ~/desktop/code/hexo]$ echo &quot;cGljb0NURntmcjFkYV9mMHJfYjFuX2luNXRydW0zbnQ0dGlvbiFfYjIxYWVmMzl9&quot; | base64 -d
+picoCTF{fr1da_f0r_b1n_in5trum3nt4tion!_b21aef39}%</code></pre>
+<p>flag: <code>cGljb0NURntmcjFkYV9mMHJfYjFuX2luNXRydW0zbnQ0dGlvbiFfYjIxYWVmMzl9" | base64 -d picoCTF{fr1da_f0r_b1n_in5trum3nt4tion!_b21aef39}%</code></p>
+
+    </div>
+
+    <nav class="post-nav" aria-label="more posts">
+        <a class="prev" href="/posts/picoctf-binaryinstrumentation1/" rel="prev"><span class="post-nav-label">‹ older</span>PicoCTF: Binary Instrumentation I</a>
+        <a class="next" href="/posts/untitled01/" rel="next"><span class="post-nav-label">newer ›</span>untitled01</a>
+    </nav>
+</article>
+
+<aside class="post-aside" aria-label="on this page">
+    <ul class="aside-actions">
+        <li><a href="/posts/picoctf-binaryinstrumentation1/" title="older: PicoCTF: Binary Instrumentation I" aria-label="older post">‹</a></li>
+        <li><a href="/posts/untitled01/" title="newer: untitled01" aria-label="newer post">›</a></li>
+        <li><a href="#top" class="to-top" title="back to top" aria-label="back to top">↑</a></li>
+    </ul>
+    <nav class="toc toc-side" aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#basic-forensics--info">Basic forensics &amp; info</a></li><li class="toc-h2"><a href="#frida-trace-exploration">Frida-trace exploration</a></li><li class="toc-h3"><a href="#overkill-frida-trace">Overkill frida-trace</a></li><li class="toc-h3"><a href="#specific-frida-trace">Specific frida-trace</a></li><li class="toc-h2"><a href="#modifying-handlers">Modifying handlers</a></li><li class="toc-h3"><a href="#createfilea-modifications">CreateFileA modifications</a></li><li class="toc-h3"><a href="#writefile-modification--solution">WriteFile modification &amp; solution</a></li></ol></nav>
+</aside>
+
+        </main>
+        <footer class="site-footer">
+    <span class="footer-left">
+        <span>&copy; 2024–2026 river</span>
+        <button type="button" class="contact-button" aria-controls="toast" data-label="email" data-value="bG92ZS5yaXZlcnNAcHJvdG9uLm1l">email</button><button type="button" class="contact-button" aria-controls="toast" data-label="signal" data-value="cml2LjEzMzc=">signal</button>
+    </span>
+    <span class="footer-links">
+        <a href="/atom.xml">atom</a>
+        <button type="button" class="scheme-toggle" title="switch colour scheme">scheme: <span class="scheme-name">river</span></button>
+    </span>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</footer>
+
+    </div>
+    <script src="/js/main.js" defer></script>
+    
+    
+    <script>
+    // oneko chases the cursor, so skip it on touch screens
+    (function () {
+      if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+      var s = document.createElement("script");
+      s.src = "/js/oneko.js";
+      document.body.appendChild(s);
+    })();
+    </script>
+    
+</body>
+</html>

@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en" data-scheme="river" data-schemes="river">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PicoCTF: Binary Instrumentation I · river</title>
+    <meta name="description" content="Bypassing sleep functions using Frida">
+    <meta name="author" content="river">
+    <link rel="canonical" href="https://rivers.sh/posts/picoctf-binaryinstrumentation1/">
+    <meta property="og:site_name" content="river">
+    <meta property="og:title" content="PicoCTF: Binary Instrumentation I">
+    <meta property="og:description" content="Bypassing sleep functions using Frida">
+    <meta property="og:url" content="https://rivers.sh/posts/picoctf-binaryinstrumentation1/">
+    <meta property="og:type" content="article">
+    <link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+    <link rel="alternate" type="application/atom+xml" title="river" href="/atom.xml">
+    <link rel="preload" href="/fonts/MesloLGS-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/syntax.css">
+    <script>
+    // Runs before first paint: restore the visitor's colour scheme and pick the
+    // background art, so neither flashes in after load.
+    (function () {
+      var d = document.documentElement;
+      try {
+        var s = localStorage.getItem("scheme");
+        if (s && d.getAttribute("data-schemes").split(" ").indexOf(s) !== -1) d.setAttribute("data-scheme", s);
+      } catch (e) {}
+      var art = ["/images/art/art1.jpg"];
+      if (!art.length) return;
+      var i = Math.floor(Math.random() * art.length);
+      try {
+        // don't show the same art twice in a row
+        var last = parseInt(localStorage.getItem("art-last"), 10);
+        if (art.length > 1 && i === last) i = (i + 1 + Math.floor(Math.random() * (art.length - 1))) % art.length;
+        localStorage.setItem("art-last", i);
+      } catch (e) {}
+      var a = typeof art[i] === "string" ? { src: art[i] } : art[i];
+      d.style.setProperty("--art", 'url("' + a.src + '")');
+      d.style.setProperty("--art-pos", a.position || "right bottom");
+      d.setAttribute("data-art", "");
+    })();
+    </script>
+</head>
+<body class="is-post">
+    <a class="skip-link" href="#main">skip to content</a>
+    <div class="page">
+        <header class="site-header">
+    <a class="site-title" href="/">river</a>
+    <nav class="site-nav" aria-label="site">
+        <ul><li><a href="/">home</a></li><li><a href="/blog/">blog</a></li><li><a href="/categories/">categories</a></li><li><a href="/tags/">tags</a></li><li><a href="/search/">search</a></li></ul>
+    </nav>
+</header>
+
+        <main id="main">
+<article class="post h-entry">
+    <header class="post-header">
+        <h1 class="post-title p-name">PicoCTF: Binary Instrumentation I</h1>
+        <!-- no whitespace between items: the "|" separators supply the spacing -->
+        <div class="post-meta"><time class="dt-published" datetime="2025-05-01">May 1, 2025</time><span>4 min read</span><span class="post-cats"><a href="/categories/ctf/">CTF</a> › <a href="/categories/ctf/picoctf2024/">picoCTF2024</a> › <a href="/categories/ctf/picoctf2024/medium/">Medium</a></span><span class="post-tags"><a class="p-category" href="/tags/reverse-engineering/">#Reverse Engineering</a> <a class="p-category" href="/tags/frida/">#Frida</a> <a class="p-category" href="/tags/binary-instrumentation/">#Binary Instrumentation</a> <a class="p-category" href="/tags/javascript/">#JavaScript</a> <a class="p-category" href="/tags/windows-api/">#Windows API</a></span></div>
+        <p class="post-description p-summary">Bypassing sleep functions using Frida</p>
+    </header>
+
+    
+    <details class="toc toc-inline">
+        <summary>contents</summary>
+        <nav aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#basic-forensics--info">Basic forensics &amp; info</a></li><li class="toc-h3"><a href="#kernel32dllsleepjs">KERNEL32.DLL\Sleep.js</a></li><li class="toc-h2"><a href="#solution">Solution</a></li></ol></nav>
+    </details>
+    
+
+    <div class="prose e-content" tabindex="-1">
+
+<h2 id="challenge-info"><a href="#challenge-info" class="anchor">#</a>Challenge Info</h2>
+<p>I have been learning to use the Windows API to do cool stuff! Can you wake up my program to get the flag?<br />
+Download the exe <a href="https://challenge-files.picoctf.net/c_verbal_sleep/c71239e2890bd0008ff9c1da986438d276e7a96ba123cb3bc7b04d5a3de27fe7/bininst1.zip" target="_blank" rel="noopener">here</a>. Unzip the archive with the password <code>picoctf</code></p>
+<p>This challenge is #1 of a 2 part series</p>
+<p><a href="https://rivers.sh/posts/binaryinstrumentation2/" target="_blank" rel="noopener">Binary Instrumentation II</a></p>
+<h2 id="basic-forensics--info"><a href="#basic-forensics--info" class="anchor">#</a>Basic forensics &amp; info</h2>
+<p><code>File</code> command for basic info:</p>
+<pre><code>C:\Users\river\Desktop\ctf\pico\BinaryInstrumentation1\bininst1&gt;file bininst1.exe
+bininst1.exe: PE32+ executable (console) x86-64, for MS Windows
+
+FLARE-VM Fri 05/02/2025 18:41:00.51</code></pre>
+<p>Running the program:</p>
+<pre><code>C:\Users\river\Desktop\ctf\pico\BinaryInstrumentation1\bininst1&gt;bininst1.exe
+Hi, I have the flag for you just right here!
+I&#39;ll just take a quick nap before I print it out for you, should only take me a decade or so!
+zzzzzzzz....</code></pre>
+<p>Knowing that the program is a Windows executable, and based off the output when running it, I assume we'll have to target the Windows API <code>Sleep</code> call using Frida, a dynamic instrumentation toolkit that will let us trace, monitor, and modify the behavior of applications. Specifically, we will use <code>frida-trace</code> to trace function calls (<code>Sleep</code>, in this case`):</p>
+<pre><code>C:\Users\river\Desktop\ctf\pico\BinaryInstrumentation1&gt;frida-trace -i Sleep -f bininst1.exe
+Instrumenting...
+Sleep: Auto-generated handler at &quot;C:\Users\river\Desktop\ctf\pico\BinaryInstrumentation1\__handlers__\KERNELBASE.dll\Sleep.js&quot;
+Sleep: Auto-generated handler at &quot;C:\Users\river\Desktop\ctf\pico\BinaryInstrumentation1\__handlers__\KERNEL32.DLL\Sleep.js&quot;
+Started tracing 2 functions. Web UI available at http://localhost:50498/
+Hi, I have the flag for you just right here!
+I&#39;ll just take a quick nap before I print it out for you, should only take me a decade or so!
+zzzzzzzz....
+           /* TID 0x179c */
+    31 ms  Sleep()
+    31 ms     | Sleep()</code></pre>
+<p>When we run frida-trace to instrument a function like Sleep, it automatically creates JavaScript handler files for each implementation of that function it finds. This is a powerful feature of Frida that allows us to not just observe, but also modify program behavior at runtime.<br />
+In our case, Frida generated two handler files:</p>
+<ul>
+<li><code>\__handlers__\KERNELBASE.DLL\Sleep.js</code></li>
+<li><code>\__handlers__\KERNEL32.DLL\Sleep.js</code></li>
+</ul>
+<p>For clarification, both <code>Sleep.js</code> files are the same. Frida generates two handlers because of how Windows API functions are implemented:</p>
+<ol type="1">
+<li><code>KERNEL32.DLL</code> is the higher-level library that applications typically link against</li>
+<li><code>KERNELBASE.dll</code> is the lower-level implementation that KERNEL32.DLL often forwards calls to</li>
+</ol>
+<p>In most cases, the <code>Sleep</code> function in <code>KERNEL32.DLL</code> will just simply forward the call to <code>KERNELBASE.dll</code>. For this challenge, we <em>should</em> be able to modify either one because:</p>
+<ul>
+<li>If the program calls Sleep directly from KERNEL32.DLL, modifying that handler will work</li>
+<li>If KERNEL32.DLL forwards to KERNELBASE.dll, modifying the KERNELBASE handler will work</li>
+<li>If we modify both, we're covered either way</li>
+</ul>
+<p>So, for the sake of this challenge, I will be modifying the <code>KERNEL32.dll</code> one.</p>
+<h3 id="kernel32dllsleepjs"><a href="#kernel32dllsleepjs" class="anchor">#</a>KERNEL32.DLL\Sleep.js</h3>
+<p>The file for your convenience:</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode js"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co">/*</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="co"> * Auto-generated by Frida. Please modify to match the signature of Sleep.</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="co"> * This stub is currently auto-generated from manpages when available.</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="co"> *</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="co"> * For full API reference, see: https://frida.re/docs/javascript-api/</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="co"> */</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a><span class="fu">defineHandler</span>({</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">onEnter</span>(log<span class="op">,</span> args<span class="op">,</span> state) {</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>    <span class="fu">log</span>(<span class="st">&#39;Sleep()&#39;</span>)<span class="op">;</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>  }<span class="op">,</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">onLeave</span>(log<span class="op">,</span> retval<span class="op">,</span> state) {</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<ol type="1">
+<li><p><code>defineHandler({ ... })</code> - This is a Frida function that registers a new handler for the targeted function (Sleep in this case).</p></li>
+<li><p><code>onEnter(log, args, state)</code> - This callback function is executed right before the actual Sleep function is called:</p>
+<ul>
+<li><code>log</code> - A function you can use to print messages to the Frida console</li>
+<li><code>args</code> - An array containing the function arguments (in this case, Sleep takes one argument for the sleep duration in milliseconds)</li>
+<li><code>state</code> - An object where you can store data to share between onEnter and onLeave</li>
+</ul></li>
+<li><p><code>log('Sleep()')</code> - This simply logs "Sleep()" to the console when the function is called, but doesn't include any details about the arguments.</p></li>
+<li><p><code>onLeave(log, retval, state)</code> - This callback is executed after the Sleep function returns:</p>
+<ul>
+<li><code>retval</code> - Contains the return value of the function (this is empty, so it actually doesn't even do anything when <code>Sleep</code> returns)</li>
+</ul></li>
+</ol>
+<h2 id="solution"><a href="#solution" class="anchor">#</a>Solution</h2>
+<p>To solve the challenge, we'd need to modify this file and change the <code>Sleep</code> duration argument. Ultimately, i decided to come up with a modification that not only replaces the sleep duration with 0, but also logs the original sleep duration, just for troubleshooting / analysis purposes:</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode js"><code class="sourceCode javascript"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">defineHandler</span>({</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">onEnter</span>(log<span class="op">,</span> args<span class="op">,</span> state) {</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>    <span class="co">// logs the original sleep duration</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>    <span class="fu">log</span>(<span class="vs">`Sleep(</span><span class="sc">${</span>args[<span class="dv">0</span>]<span class="sc">}</span><span class="vs">) - Original duration: </span><span class="sc">${</span>args[<span class="dv">0</span>]<span class="op">.</span><span class="fu">toInt32</span>()<span class="sc">}</span><span class="vs"> ms`</span>)<span class="op">;</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>    <span class="co">// replaces the sleep duration with 0</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>    args[<span class="dv">0</span>] <span class="op">=</span> <span class="fu">ptr</span>(<span class="st">&quot;0&quot;</span>)<span class="op">;</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>    <span class="fu">log</span>(<span class="st">&quot;Sleep duration changed to 0 ms&quot;</span>)<span class="op">;</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>  }<span class="op">,</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">onLeave</span>(log<span class="op">,</span> retval<span class="op">,</span> state) {</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>    <span class="fu">log</span>(<span class="st">&quot;Sleep function completed&quot;</span>)<span class="op">;</span></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<p>After modifying &amp; saving, we can re-run <code>frida-trace</code> and see if it works:</p>
+<pre><code>PS C:\Users\river\Desktop\ctf\pico\BinaryInstrumentation1 &gt; frida-trace -i Sleep -f .\bininst1.exe
+Instrumenting...
+Sleep: Loaded handler at &quot;C:\Users\river\Desktop\ctf\pico\BinaryInstrumentation1\__handlers__\KERNELBASE.dll\Sleep.js&quot;
+Sleep: Loaded handler at &quot;C:\Users\river\Desktop\ctf\pico\BinaryInstrumentation1\__handlers__\KERNEL32.DLL\Sleep.js&quot;
+Started tracing 2 functions. Web UI available at http://localhost:51063/
+Hi, I have the flag for you just right here!
+I&#39;ll just take a quick nap before I print it out for you, should only take me a decade or so!
+zzzzzzzz....
+Ok, I&#39;m Up! The flag is: cGljb0NURnt3NGtlX20zX3VwX3cxdGhfZnIxZGFfZjI3YWNjMzh9
+           /* TID 0x106c */
+    16 ms  Sleep()
+    16 ms     | Sleep(0xfffffffe) - Original duration: -2 ms
+    16 ms     | Sleep duration changed to 0 ms
+    16 ms  Sleep function completed
+    16 ms  Sleep()
+    16 ms     | Sleep(0xfffffffe) - Original duration: -2 ms
+    16 ms     | Sleep duration changed to 0 ms
+    16 ms  Sleep function completed
+...
+Process terminated
+FLARE-VM 05/02/2025 19:24:13</code></pre>
+<blockquote>
+<p>Interestingly, the original duration was -2ms, which would have taken forever</p>
+</blockquote>
+<p>The flag looks like it's encoded via base64, you can either put it through <a href="https://gchq.github.io/CyberChef/" target="_blank" rel="noopener">CyberChef</a> or decode it the cool way:</p>
+<pre><code>[marcial@arch ~/desktop/cyber/pico/binaryinstrumentation1]$ echo &quot;cGljb0NURnt3NGtlX20zX3VwX3cxdGhfZnIxZGFfZjI3YWNjMzh9&quot; | base64 -d 
+picoCTF{w4ke_m3_up_w1th_fr1da_f27acc38}</code></pre>
+<p>flag: <code>picoCTF{w4ke_m3_up_w1th_fr1da_f27acc38}</code></p>
+
+    </div>
+
+    <nav class="post-nav" aria-label="more posts">
+        <a class="prev" href="/posts/picoctf-factcheck/" rel="prev"><span class="post-nav-label">‹ older</span>picoCTF: FactCheck</a>
+        <a class="next" href="/posts/picoctf-binaryinstrumentation2/" rel="next"><span class="post-nav-label">newer ›</span>picoCTF: Binary Instrumentation II</a>
+    </nav>
+</article>
+
+<aside class="post-aside" aria-label="on this page">
+    <ul class="aside-actions">
+        <li><a href="/posts/picoctf-factcheck/" title="older: picoCTF: FactCheck" aria-label="older post">‹</a></li>
+        <li><a href="/posts/picoctf-binaryinstrumentation2/" title="newer: picoCTF: Binary Instrumentation II" aria-label="newer post">›</a></li>
+        <li><a href="#top" class="to-top" title="back to top" aria-label="back to top">↑</a></li>
+    </ul>
+    <nav class="toc toc-side" aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#basic-forensics--info">Basic forensics &amp; info</a></li><li class="toc-h3"><a href="#kernel32dllsleepjs">KERNEL32.DLL\Sleep.js</a></li><li class="toc-h2"><a href="#solution">Solution</a></li></ol></nav>
+</aside>
+
+        </main>
+        <footer class="site-footer">
+    <span class="footer-left">
+        <span>&copy; 2024–2026 river</span>
+        <button type="button" class="contact-button" aria-controls="toast" data-label="email" data-value="bG92ZS5yaXZlcnNAcHJvdG9uLm1l">email</button><button type="button" class="contact-button" aria-controls="toast" data-label="signal" data-value="cml2LjEzMzc=">signal</button>
+    </span>
+    <span class="footer-links">
+        <a href="/atom.xml">atom</a>
+        <button type="button" class="scheme-toggle" title="switch colour scheme">scheme: <span class="scheme-name">river</span></button>
+    </span>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</footer>
+
+    </div>
+    <script src="/js/main.js" defer></script>
+    
+    
+    <script>
+    // oneko chases the cursor, so skip it on touch screens
+    (function () {
+      if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+      var s = document.createElement("script");
+      s.src = "/js/oneko.js";
+      document.body.appendChild(s);
+    })();
+    </script>
+    
+</body>
+</html>

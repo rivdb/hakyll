@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en" data-scheme="river" data-schemes="river">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>untitled02 · river</title>
+    <meta name="description" content="ctf&#39;s, cybersecurity, hackthebox, philosophy, everything">
+    <meta name="author" content="river">
+    <link rel="canonical" href="https://rivers.sh/posts/untitled02/">
+    <meta property="og:site_name" content="river">
+    <meta property="og:title" content="untitled02">
+    <meta property="og:description" content="ctf&#39;s, cybersecurity, hackthebox, philosophy, everything">
+    <meta property="og:url" content="https://rivers.sh/posts/untitled02/">
+    <meta property="og:type" content="article">
+    <link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+    <link rel="alternate" type="application/atom+xml" title="river" href="/atom.xml">
+    <link rel="preload" href="/fonts/MesloLGS-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/syntax.css">
+    <script>
+    // Runs before first paint: restore the visitor's colour scheme and pick the
+    // background art, so neither flashes in after load.
+    (function () {
+      var d = document.documentElement;
+      try {
+        var s = localStorage.getItem("scheme");
+        if (s && d.getAttribute("data-schemes").split(" ").indexOf(s) !== -1) d.setAttribute("data-scheme", s);
+      } catch (e) {}
+      var art = ["/images/art/art1.jpg"];
+      if (!art.length) return;
+      var i = Math.floor(Math.random() * art.length);
+      try {
+        // don't show the same art twice in a row
+        var last = parseInt(localStorage.getItem("art-last"), 10);
+        if (art.length > 1 && i === last) i = (i + 1 + Math.floor(Math.random() * (art.length - 1))) % art.length;
+        localStorage.setItem("art-last", i);
+      } catch (e) {}
+      var a = typeof art[i] === "string" ? { src: art[i] } : art[i];
+      d.style.setProperty("--art", 'url("' + a.src + '")');
+      d.style.setProperty("--art-pos", a.position || "right bottom");
+      d.setAttribute("data-art", "");
+    })();
+    </script>
+</head>
+<body class="is-post">
+    <a class="skip-link" href="#main">skip to content</a>
+    <div class="page">
+        <header class="site-header">
+    <a class="site-title" href="/">river</a>
+    <nav class="site-nav" aria-label="site">
+        <ul><li><a href="/">home</a></li><li><a href="/blog/">blog</a></li><li><a href="/categories/">categories</a></li><li><a href="/tags/">tags</a></li><li><a href="/search/">search</a></li></ul>
+    </nav>
+</header>
+
+        <main id="main">
+<article class="post h-entry">
+    <header class="post-header">
+        <h1 class="post-title p-name">untitled02</h1>
+        <!-- no whitespace between items: the "|" separators supply the spacing -->
+        <div class="post-meta"><time class="dt-published" datetime="2026-07-03">Jul 3, 2026</time><span class="post-locked">locked</span><span class="post-cats"><a href="/categories/blog/">Blog</a></span></div>
+        
+    </header>
+
+    
+    <details class="toc toc-inline" hidden>
+        <summary>contents</summary>
+        <nav aria-label="contents" data-toc></nav>
+    </details>
+    
+
+    <div class="prose e-content" tabindex="-1">
+
+        <form class="unlock" id="unlock">
+            <p><span class="prompt">$</span> sudo cat untitled02.md</p>
+            <p class="unlock-line">
+                <label for="unlock-password">[sudo] password for guest:</label>
+                <input type="password" id="unlock-password" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+            </p>
+            <p class="unlock-status" id="unlock-status" role="status" aria-live="polite"></p>
+            <button type="submit" class="unlock-button">unlock</button>
+        </form>
+        <noscript><p>this post is encrypted, and unlocking it needs javascript.</p></noscript>
+        <script type="application/json" id="locked-payload">{"data":"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","iter":600000,"kdf":"PBKDF2-SHA256","salt":"moACji1wVTjKez9LW2/YfQ==","v":1}</script>
+
+    </div>
+
+    <nav class="post-nav" aria-label="more posts">
+        <a class="prev" href="/posts/htb-espresso/" rel="prev"><span class="post-nav-label">‹ older</span>HackTheBox: Espresso</a>
+        <a class="next" href="/posts/htb-lowlogic/" rel="next"><span class="post-nav-label">newer ›</span>HackTheBox: lowlogic</a>
+    </nav>
+</article>
+
+<aside class="post-aside" aria-label="on this page">
+    <ul class="aside-actions">
+        <li><a href="/posts/htb-espresso/" title="older: HackTheBox: Espresso" aria-label="older post">‹</a></li>
+        <li><a href="/posts/htb-lowlogic/" title="newer: HackTheBox: lowlogic" aria-label="newer post">›</a></li>
+        <li><a href="#top" class="to-top" title="back to top" aria-label="back to top">↑</a></li>
+    </ul>
+    <nav class="toc toc-side" aria-label="contents" data-toc hidden></nav>
+</aside>
+
+        </main>
+        <footer class="site-footer">
+    <span class="footer-left">
+        <span>&copy; 2024–2026 river</span>
+        <button type="button" class="contact-button" aria-controls="toast" data-label="email" data-value="bG92ZS5yaXZlcnNAcHJvdG9uLm1l">email</button><button type="button" class="contact-button" aria-controls="toast" data-label="signal" data-value="cml2LjEzMzc=">signal</button>
+    </span>
+    <span class="footer-links">
+        <a href="/atom.xml">atom</a>
+        <button type="button" class="scheme-toggle" title="switch colour scheme">scheme: <span class="scheme-name">river</span></button>
+    </span>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</footer>
+
+    </div>
+    <script src="/js/main.js" defer></script>
+    <script src="/js/unlock.js" defer></script>
+    
+    <script>
+    // oneko chases the cursor, so skip it on touch screens
+    (function () {
+      if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+      var s = document.createElement("script");
+      s.src = "/js/oneko.js";
+      document.body.appendChild(s);
+    })();
+    </script>
+    
+</body>
+</html>

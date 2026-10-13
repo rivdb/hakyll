@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en" data-scheme="river" data-schemes="river">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>picoCTF: WinAntiDbg0x100 · river</title>
+    <meta name="description" content="Bypassing simple anti-debugging techniques in a Windows executable through dynamic analysis">
+    <meta name="author" content="river">
+    <link rel="canonical" href="https://rivers.sh/posts/picoctf-winantidbg0x100/">
+    <meta property="og:site_name" content="river">
+    <meta property="og:title" content="picoCTF: WinAntiDbg0x100">
+    <meta property="og:description" content="Bypassing simple anti-debugging techniques in a Windows executable through dynamic analysis">
+    <meta property="og:url" content="https://rivers.sh/posts/picoctf-winantidbg0x100/">
+    <meta property="og:type" content="article">
+    <link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+    <link rel="alternate" type="application/atom+xml" title="river" href="/atom.xml">
+    <link rel="preload" href="/fonts/MesloLGS-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/syntax.css">
+    <script>
+    // Runs before first paint: restore the visitor's colour scheme and pick the
+    // background art, so neither flashes in after load.
+    (function () {
+      var d = document.documentElement;
+      try {
+        var s = localStorage.getItem("scheme");
+        if (s && d.getAttribute("data-schemes").split(" ").indexOf(s) !== -1) d.setAttribute("data-scheme", s);
+      } catch (e) {}
+      var art = ["/images/art/art1.jpg"];
+      if (!art.length) return;
+      var i = Math.floor(Math.random() * art.length);
+      try {
+        // don't show the same art twice in a row
+        var last = parseInt(localStorage.getItem("art-last"), 10);
+        if (art.length > 1 && i === last) i = (i + 1 + Math.floor(Math.random() * (art.length - 1))) % art.length;
+        localStorage.setItem("art-last", i);
+      } catch (e) {}
+      var a = typeof art[i] === "string" ? { src: art[i] } : art[i];
+      d.style.setProperty("--art", 'url("' + a.src + '")');
+      d.style.setProperty("--art-pos", a.position || "right bottom");
+      d.setAttribute("data-art", "");
+    })();
+    </script>
+</head>
+<body class="is-post">
+    <a class="skip-link" href="#main">skip to content</a>
+    <div class="page">
+        <header class="site-header">
+    <a class="site-title" href="/">river</a>
+    <nav class="site-nav" aria-label="site">
+        <ul><li><a href="/">home</a></li><li><a href="/blog/">blog</a></li><li><a href="/categories/">categories</a></li><li><a href="/tags/">tags</a></li><li><a href="/search/">search</a></li></ul>
+    </nav>
+</header>
+
+        <main id="main">
+<article class="post h-entry">
+    <header class="post-header">
+        <h1 class="post-title p-name">picoCTF: WinAntiDbg0x100</h1>
+        <!-- no whitespace between items: the "|" separators supply the spacing -->
+        <div class="post-meta"><time class="dt-published" datetime="2025-02-08">Feb 8, 2025</time><span>4 min read</span><span class="post-cats"><a href="/categories/ctf/">CTF</a> › <a href="/categories/ctf/picoctf2024/">picoCTF2024</a> › <a href="/categories/ctf/picoctf2024/medium/">Medium</a></span><span class="post-tags"><a class="p-category" href="/tags/reverse-engineering/">#Reverse Engineering</a> <a class="p-category" href="/tags/assembly/">#Assembly</a> <a class="p-category" href="/tags/x64dbg/">#x64dbg</a> <a class="p-category" href="/tags/c/">#C</a></span></div>
+        <p class="post-description p-summary">Bypassing simple anti-debugging techniques in a Windows executable through dynamic analysis</p>
+    </header>
+
+    
+    <details class="toc toc-inline">
+        <summary>contents</summary>
+        <nav aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#this-challenge-is-1-of-a-3-part-series-next-winantidbg0x200-next-winantidbg0x300">This challenge is #1 of a 3 part series next WinAntiDbg0x200 next WinAntiDbg0x300</a></li><li class="toc-h2"><a href="#poking-around">Poking around</a></li><li class="toc-h2"><a href="#understanding-the-program">Understanding the program</a></li><li class="toc-h3"><a href="#check-1">Check #1</a></li><li class="toc-h3"><a href="#check-2">Check #2</a></li><li class="toc-h2"><a href="#bypassing-check-2">Bypassing Check #2</a></li></ol></nav>
+    </details>
+    
+
+    <div class="prose e-content" tabindex="-1">
+
+<h2 id="challenge-info"><a href="#challenge-info" class="anchor">#</a>Challenge Info</h2>
+<p>This challenge will introduce you to 'Anti-Debugging.' Malware developers don't like it when you attempt to debug their executable files because debugging these files reveals many of their secrets! That's why they include a lot of code logic specifically designed to interfere with your debugging process. Now that you've understood the context, go ahead and debug this Windows executable! This challenge binary file is a Windows console application and you can start with running it using <code>cmd</code> on Windows. Challenge can be downloaded <a href="https://artifacts.picoctf.net/c_titan/55/WinAntiDbg0x100.zip" target="_blank" rel="noopener">here</a>. Unzip the archive with the password <code>picoctf</code></p>
+<h2 id="this-challenge-is-1-of-a-3-part-series-next-winantidbg0x200-next-winantidbg0x300"><a href="#this-challenge-is-1-of-a-3-part-series-next-winantidbg0x200-next-winantidbg0x300" class="anchor">#</a>This challenge is #1 of a 3 part series<br />
+next <a href="https://rivers.sh/posts/winantidbg0x200" target="_blank" rel="noopener">WinAntiDbg0x200</a><br />
+next <a href="https://rivers.sh/posts/winantidbg0x300" target="_blank" rel="noopener">WinAntiDbg0x300</a></h2>
+<h2 id="poking-around"><a href="#poking-around" class="anchor">#</a>Poking around</h2>
+<p>First, I tried to run the executable, but had no success:</p>
+<pre><code>C:\Users\riv\Desktop\pico\WinAntiDbg0x100&gt;WinAntiDbg0x100.exe
+
+
+        _            _____ _______ ______
+       (_)          / ____|__   __|  ____|
+  _ __  _  ___ ___ | |       | |  | |__
+ | &#39;_ \| |/ __/ _ \| |       | |  |  __|
+ | |_) | | (_| (_) | |____   | |  | |
+ | .__/|_|\___\___/ \_____|  |_|  |_|
+ | |
+ |_|
+  Welcome to the Anti-Debug challenge!
+### To start the challenge, you&#39;ll need to first launch this program using a debugger!</code></pre>
+<p>For analyzing, I prefer Ghidra over x32dbg. Searching through program text for the word "flag" yields a few results.</p>
+<p><img src="/images/winantidbg0x100/search.png" alt="search" /></p>
+<p>After jumping to them:<br />
+<img src="/images/winantidbg0x100/ghidrafun.png" alt="ghidrafun" /></p>
+<p>We notice function calls, conditional jumps, and debug checks.</p>
+<hr />
+<h2 id="understanding-the-program"><a href="#understanding-the-program" class="anchor">#</a>Understanding the program</h2>
+<p>Let's understand <code>FUN_00401580</code>, I've left the code below for your convenience:</p>
+<pre><code>undefined4 FUN_00401580(void)
+
+{
+  uint uVar1;
+  int iVar2;
+  BOOL BVar3;
+  LPWSTR lpOutputString;
+  undefined in_stack_fffffff4;
+  
+  uVar1 = FUN_00401130();
+  if ((uVar1 &amp; 0xff) == 0) {
+    FUN_00401060(PTR_s________________________(_)_/_____00405020,in_stack_fffffff4);
+    FUN_00401060(&quot;### To start the challenge, you\&#39;ll need to first launch this program using a debu gger!\n&quot;
+                 ,in_stack_fffffff4);
+  }
+  else {
+    OutputDebugStringW(L&quot;\n&quot;);
+    OutputDebugStringW(L&quot;\n&quot;);
+    FUN_004011b0();
+    iVar2 = FUN_00401200();
+    if (iVar2 == 0) {
+      OutputDebugStringW(L&quot;### Error reading the \&#39;config.bin\&#39; file... Challenge aborted.\n&quot;);
+    }
+    else {
+      OutputDebugStringW(
+                        L&quot;### Level 1: Why did the clever programmer become a gardener? Because they  discovered their talent for growing a \&#39;patch\&#39; of roses!\n&quot;
+                        );
+      FUN_00401440(7);
+      BVar3 = IsDebuggerPresent();
+      if (BVar3 == 0) {
+        FUN_00401440(0xb);
+        FUN_00401530(DAT_00405404);
+        lpOutputString = FUN_004013b0(DAT_00405408);
+        if (lpOutputString == (LPWSTR)0x0) {
+          OutputDebugStringW(L&quot;### Something went wrong...\n&quot;);
+        }
+        else {
+          OutputDebugStringW(L&quot;### Good job! Here\&#39;s your flag:\n&quot;);
+          OutputDebugStringW(L&quot;### ~~~ &quot;);
+          OutputDebugStringW(lpOutputString);
+          OutputDebugStringW(L&quot;\n&quot;);
+          OutputDebugStringW(
+                            L&quot;### (Note: The flag could become corrupted if the process state is tam pered with in any way.)\n\n&quot;
+                            );
+          free(lpOutputString);
+        }
+      }
+      else {
+        OutputDebugStringW(
+                          L&quot;### Oops! The debugger was detected. Try to bypass this check to get the  flag!\n&quot;
+                          );
+      }
+    }
+    free(DAT_00405410);
+  }
+  OutputDebugStringW(L&quot;\n&quot;);
+  OutputDebugStringW(L&quot;\n&quot;);
+  return 0;
+}</code></pre>
+<h3 id="check-1"><a href="#check-1" class="anchor">#</a>Check #1</h3>
+<pre><code>uVar1 = FUN_00401130();
+if ((uVar1 &amp; 0xff) == 0) {
+    FUN_00401060(PTR_s________________________(_)_/_____00405020,in_stack_fffffff4);
+    FUN_00401060(&quot;### To start the challenge, you\&#39;ll need to first launch this program using a debugger!\n&quot;
+                 ,in_stack_fffffff4);
+}</code></pre>
+<ul>
+<li><code>FUN_00401130()</code> is called, it returns a value stored in <code>uVar1</code>. Then, the program checks whether <code>(uVar1 &amp; 0xff) == 0</code>.</li>
+<li>If <em>true</em>, the program prints a message prompting us to start it inside a debugger.</li>
+<li>If <em>false</em>, we continue.</li>
+</ul>
+<p>Don't worry about bypassing this, since we'll have to use a debugger anyways.</p>
+<h3 id="check-2"><a href="#check-2" class="anchor">#</a>Check #2</h3>
+<pre><code>BVar3 = IsDebuggerPresent();
+if (BVar3 == 0) {
+    FUN_00401440(0xb);
+    FUN_00401530(DAT_00405404);
+    lpOutputString = FUN_004013b0(DAT_00405408);
+    if (lpOutputString == (LPWSTR)0x0) {
+        OutputDebugStringW(L&quot;### Something went wrong...\n&quot;);
+    } else {
+        OutputDebugStringW(L&quot;### Good job! Here\&#39;s your flag:\n&quot;);
+        OutputDebugStringW(L&quot;### ~~~ &quot;);
+        OutputDebugStringW(lpOutputString);
+        OutputDebugStringW(L&quot;\n&quot;);
+        OutputDebugStringW(
+            L&quot;### (Note: The flag could become corrupted if the process state is tampered with in any way.)\n\n&quot;
+        );
+        free(lpOutputString);
+    }
+} else {
+    OutputDebugStringW(
+        L&quot;### Oops! The debugger was detected. Try to bypass this check to get the flag!\n&quot;
+    );
+}</code></pre>
+<p>This is the main anti-debugging check we need to bypass:</p>
+<ul>
+<li>The program calls <code>IsDebuggerPresent()</code>, which returns <em>True</em> (nonzero) if a debugger <em>is</em> detected.</li>
+<li>If no debugger is found <code>(BVar3 == 0)</code>, the program proceeds to retrieve and display the flag.</li>
+<li>If a debugger is detected, the program prints <code>### Oops! The debugger was detected. Try to bypass this check to get the flag!</code>.</li>
+</ul>
+<h2 id="bypassing-check-2"><a href="#bypassing-check-2" class="anchor">#</a>Bypassing Check #2</h2>
+<p>In Ghidra, the <code>if (BVar3 == 0)</code> check corresponds to specific assembly instructions. If we look at the disassembly at address 00401602, we can see:</p>
+<pre class="assembly"><code>      00401602 85 c0         TEST      EAX,EAX
+      00401604 74 15         JZ        LAB_0040161b
+      00401606 68 c8 35      PUSH      u_###_Oops!_The_debugger_was_detec_004035  LPCWSTR lpOutputString for O
+               40 00</code></pre>
+<p>Understanding the assembly:</p>
+<ul>
+<li><code>TEST EAX,EAX</code> performs a bitwise AND of EAX with itself, setting the Zero Flag (ZF) if the result is zero</li>
+<li><code>JZ LAB_0040161b</code> jumps to the flag-displaying code if ZF=1 (meaning EAX=0, no debugger detected)</li>
+<li>If the jump isn't taken, the error message is displayed</li>
+</ul>
+<p>To bypass this check, we'll use x32dbg to:</p>
+<ol type="1">
+<li>Open the program in x32dbg</li>
+<li>Find the TEST instruction</li>
+<li>Set a breakpoint at that instruction</li>
+<li>When the breakpoint hits, manually force the Zero Flag to be set</li>
+<li>Continue execution</li>
+</ol>
+<p>When opening the program in x32dbg, the addresses will be different from Ghidra due to how Windows loads executables in memory (ASLR - Address Space Layout Randomization). To find the same instruction:</p>
+<ol type="1">
+<li>In Ghidra, the entry point is at <code>00401923</code></li>
+<li>In x32dbg, the entry point might be at something like <code>006C1923</code></li>
+<li>The last 4 digits remain the same, so we can find our <code>TEST</code> instruction at <code>006C1602</code> in x32dbg</li>
+</ol>
+<p>Once we find this instruction, we:</p>
+<ol type="1">
+<li>Set a breakpoint at <code>006C1602</code>, which is where the <code>TEST</code> instruction lies</li>
+<li>When it hits, edit the <code>EAX</code> value under the <em>FPU</em> window to be 0, indicating that a debugger is <em>NOT</em> present</li>
+<li>Continue execution and get our flag</li>
+</ol>
+<p><img src="/images/winantidbg0x100/eax.png" alt="eax" /></p>
+<p>The flag will be under the "Log" tab.</p>
+<p>flag: <code>picoCTF{d3bug_f0r_th3_Win_0x100_cfbacfab}</code></p>
+
+    </div>
+
+    <nav class="post-nav" aria-label="more posts">
+        <a class="prev" href="/posts/picoctf-weirdsnake/" rel="prev"><span class="post-nav-label">‹ older</span>PicoCTF: Weird Snake</a>
+        <a class="next" href="/posts/picoctf-winantidbg0x200/" rel="next"><span class="post-nav-label">newer ›</span>picoCTF: WinAntiDbg0x200</a>
+    </nav>
+</article>
+
+<aside class="post-aside" aria-label="on this page">
+    <ul class="aside-actions">
+        <li><a href="/posts/picoctf-weirdsnake/" title="older: PicoCTF: Weird Snake" aria-label="older post">‹</a></li>
+        <li><a href="/posts/picoctf-winantidbg0x200/" title="newer: picoCTF: WinAntiDbg0x200" aria-label="newer post">›</a></li>
+        <li><a href="#top" class="to-top" title="back to top" aria-label="back to top">↑</a></li>
+    </ul>
+    <nav class="toc toc-side" aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#this-challenge-is-1-of-a-3-part-series-next-winantidbg0x200-next-winantidbg0x300">This challenge is #1 of a 3 part series next WinAntiDbg0x200 next WinAntiDbg0x300</a></li><li class="toc-h2"><a href="#poking-around">Poking around</a></li><li class="toc-h2"><a href="#understanding-the-program">Understanding the program</a></li><li class="toc-h3"><a href="#check-1">Check #1</a></li><li class="toc-h3"><a href="#check-2">Check #2</a></li><li class="toc-h2"><a href="#bypassing-check-2">Bypassing Check #2</a></li></ol></nav>
+</aside>
+
+        </main>
+        <footer class="site-footer">
+    <span class="footer-left">
+        <span>&copy; 2024–2026 river</span>
+        <button type="button" class="contact-button" aria-controls="toast" data-label="email" data-value="bG92ZS5yaXZlcnNAcHJvdG9uLm1l">email</button><button type="button" class="contact-button" aria-controls="toast" data-label="signal" data-value="cml2LjEzMzc=">signal</button>
+    </span>
+    <span class="footer-links">
+        <a href="/atom.xml">atom</a>
+        <button type="button" class="scheme-toggle" title="switch colour scheme">scheme: <span class="scheme-name">river</span></button>
+    </span>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</footer>
+
+    </div>
+    <script src="/js/main.js" defer></script>
+    
+    
+    <script>
+    // oneko chases the cursor, so skip it on touch screens
+    (function () {
+      if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+      var s = document.createElement("script");
+      s.src = "/js/oneko.js";
+      document.body.appendChild(s);
+    })();
+    </script>
+    
+</body>
+</html>

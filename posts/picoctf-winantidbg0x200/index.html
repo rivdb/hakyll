@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en" data-scheme="river" data-schemes="river">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>picoCTF: WinAntiDbg0x200 · river</title>
+    <meta name="description" content="Further bypassing anti-debugging checks by editing register values">
+    <meta name="author" content="river">
+    <link rel="canonical" href="https://rivers.sh/posts/picoctf-winantidbg0x200/">
+    <meta property="og:site_name" content="river">
+    <meta property="og:title" content="picoCTF: WinAntiDbg0x200">
+    <meta property="og:description" content="Further bypassing anti-debugging checks by editing register values">
+    <meta property="og:url" content="https://rivers.sh/posts/picoctf-winantidbg0x200/">
+    <meta property="og:type" content="article">
+    <link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+    <link rel="alternate" type="application/atom+xml" title="river" href="/atom.xml">
+    <link rel="preload" href="/fonts/MesloLGS-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/syntax.css">
+    <script>
+    // Runs before first paint: restore the visitor's colour scheme and pick the
+    // background art, so neither flashes in after load.
+    (function () {
+      var d = document.documentElement;
+      try {
+        var s = localStorage.getItem("scheme");
+        if (s && d.getAttribute("data-schemes").split(" ").indexOf(s) !== -1) d.setAttribute("data-scheme", s);
+      } catch (e) {}
+      var art = ["/images/art/art1.jpg"];
+      if (!art.length) return;
+      var i = Math.floor(Math.random() * art.length);
+      try {
+        // don't show the same art twice in a row
+        var last = parseInt(localStorage.getItem("art-last"), 10);
+        if (art.length > 1 && i === last) i = (i + 1 + Math.floor(Math.random() * (art.length - 1))) % art.length;
+        localStorage.setItem("art-last", i);
+      } catch (e) {}
+      var a = typeof art[i] === "string" ? { src: art[i] } : art[i];
+      d.style.setProperty("--art", 'url("' + a.src + '")');
+      d.style.setProperty("--art-pos", a.position || "right bottom");
+      d.setAttribute("data-art", "");
+    })();
+    </script>
+</head>
+<body class="is-post">
+    <a class="skip-link" href="#main">skip to content</a>
+    <div class="page">
+        <header class="site-header">
+    <a class="site-title" href="/">river</a>
+    <nav class="site-nav" aria-label="site">
+        <ul><li><a href="/">home</a></li><li><a href="/blog/">blog</a></li><li><a href="/categories/">categories</a></li><li><a href="/tags/">tags</a></li><li><a href="/search/">search</a></li></ul>
+    </nav>
+</header>
+
+        <main id="main">
+<article class="post h-entry">
+    <header class="post-header">
+        <h1 class="post-title p-name">picoCTF: WinAntiDbg0x200</h1>
+        <!-- no whitespace between items: the "|" separators supply the spacing -->
+        <div class="post-meta"><time class="dt-published" datetime="2025-04-03">Apr 3, 2025</time><span>6 min read</span><span class="post-cats"><a href="/categories/ctf/">CTF</a> › <a href="/categories/ctf/picoctf2024/">picoCTF2024</a> › <a href="/categories/ctf/picoctf2024/medium/">Medium</a></span><span class="post-tags"><a class="p-category" href="/tags/reverse-engineering/">#Reverse Engineering</a> <a class="p-category" href="/tags/assembly/">#Assembly</a> <a class="p-category" href="/tags/x64dbg/">#x64dbg</a> <a class="p-category" href="/tags/c/">#C</a></span></div>
+        <p class="post-description p-summary">Further bypassing anti-debugging checks by editing register values</p>
+    </header>
+
+    
+    <details class="toc toc-inline">
+        <summary>contents</summary>
+        <nav aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#prev-winantidbg0x100-next-winantidbg0x300">prev: winantidbg0x100 next: winantidbg0x300</a></li><li class="toc-h2"><a href="#understanding-the-user-code">Understanding the user-code</a></li><li class="toc-h3"><a href="#1-admin-privileges-check">#1. Admin privileges check</a></li><li class="toc-h3"><a href="#2-mutex-check">#2. Mutex check</a></li><li class="toc-h3"><a href="#3-initial-debugger-check">#3. Initial debugger check</a></li><li class="toc-h3"><a href="#4-config-file-check">#4. Config file check</a></li><li class="toc-h3"><a href="#5-custom-check">#5. Custom check</a></li><li class="toc-h3"><a href="#6-standard-debugger-check">#6. Standard debugger check</a></li><li class="toc-h3"><a href="#7-flag-decryption">#7. Flag decryption</a></li><li class="toc-h2"><a href="#understanding-the-assembly">Understanding the assembly</a></li><li class="toc-h3"><a href="#first-check-admin-privileges-check---16eb">First Check (Admin Privileges Check) - 16eb</a></li><li class="toc-h3"><a href="#second-check-if-cvar1--0-condition---1824">Second Check (if (cVar1 == &#39;\0&#39;) condition) - 1824</a></li><li class="toc-h3"><a href="#third-check-isdebuggerpresent-check---182e">Third Check (IsDebuggerPresent Check) - 182e</a></li><li class="toc-h2"><a href="#bypassing-all-3-checks">Bypassing all 3 checks</a></li></ol></nav>
+    </details>
+    
+
+    <div class="prose e-content" tabindex="-1">
+
+<h2 id="challenge-info"><a href="#challenge-info" class="anchor">#</a>Challenge Info</h2>
+<p>If you have solved WinAntiDbg0x100, you'll discover something new in this one. Debug the executable and find the flag! This challenge executable is a Windows console application, and you can start by running it using Command Prompt on Windows. This executable requires admin privileges. You might want to start Command Prompt or your debugger using the 'Run as administrator' option. Challenge can be downloaded <a href="https://artifacts.picoctf.net/c_titan/59/WinAntiDbg0x200.zip" target="_blank" rel="noopener">here</a>. Unzip the archive with the password <code>picoctf</code></p>
+<p>This challenge is #2 of a 3 part series</p>
+<h2 id="prev-winantidbg0x100-next-winantidbg0x300"><a href="#prev-winantidbg0x100-next-winantidbg0x300" class="anchor">#</a>prev: <a href="https://rivers.sh/posts/winantidbg0x100" target="_blank" rel="noopener">winantidbg0x100</a><br />
+next: <a href="https://rivers.sh/posts/winantidbg0x300" target="_blank" rel="noopener">winantidbg0x300</a></h2>
+<h2 id="understanding-the-user-code"><a href="#understanding-the-user-code" class="anchor">#</a>Understanding the user-code</h2>
+<p>Like WinAntiDbg0x100, I started by analyzing the program in Ghidra. And just like last time, I ran a search on the word "flag" through program text.</p>
+<p>We should find this user code:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>undefined4 __cdecl FUN_004016e0<span class="op">(</span><span class="dt">int</span> param_1<span class="op">,</span><span class="dt">int</span> param_2<span class="op">)</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="op">{</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">char</span> cVar1<span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">int</span> iVar2<span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  HANDLE hObject<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  DWORD DVar3<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  BOOL BVar4<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  uint uVar5<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>  LPWSTR lpOutputString<span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  undefined in_stack_fffffff0<span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>  iVar2 <span class="op">=</span> FUN_004012f0<span class="op">();</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> <span class="op">(</span>iVar2 <span class="op">==</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    FUN_00401910<span class="op">(</span><span class="st">&quot;[ERROR] There are permission issues. This program requires debug privileges and he nce you might want to run it as an Admin.</span><span class="sc">\n</span><span class="st">&quot;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>                   <span class="op">,</span>in_stack_fffffff0<span class="op">);</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    FUN_00401910<span class="op">(</span><span class="st">&quot;Challenge aborted. Please run this program as an Admin. Exiting now...</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">,</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>                   in_stack_fffffff0<span class="op">);</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>                      <span class="co">/* </span><span class="al">WARNING</span><span class="co">: Subroutine does not return */</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    exit<span class="op">(</span><span class="bn">0xff</span><span class="op">);</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>  <span class="op">}</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>  hObject <span class="op">=</span> CreateMutexW<span class="op">((</span>LPSECURITY_ATTRIBUTES<span class="op">)</span><span class="bn">0x0</span><span class="op">,</span><span class="dv">0</span><span class="op">,</span><span class="st">L&quot;WinAntiDbg0x200&quot;</span><span class="op">);</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> <span class="op">(</span>hObject <span class="op">==</span> <span class="op">(</span>HANDLE<span class="op">)</span><span class="bn">0x0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>    FUN_00401910<span class="op">(</span><span class="st">&quot;[ERROR] Failed to create the Mutex. Exiting now...</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">,</span>in_stack_fffffff0<span class="op">);</span></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>                      <span class="co">/* </span><span class="al">WARNING</span><span class="co">: Subroutine does not return */</span></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>    exit<span class="op">(</span><span class="bn">0xff</span><span class="op">);</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>  <span class="op">}</span></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>  DVar3 <span class="op">=</span> GetLastError<span class="op">();</span></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> <span class="op">(</span>DVar3 <span class="op">==</span> <span class="bn">0xb7</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="op">(</span>param_1 <span class="op">!=</span> <span class="dv">2</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>      FUN_00401910<span class="op">(</span><span class="st">&quot;[ERROR] Expected an argument</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">,</span>in_stack_fffffff0<span class="op">);</span></span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>                      <span class="co">/* </span><span class="al">WARNING</span><span class="co">: Subroutine does not return */</span></span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a>      exit<span class="op">(</span><span class="bn">0xbeef</span><span class="op">);</span></span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a>    DVar3 <span class="op">=</span> atoi<span class="op">(*(</span><span class="dt">char</span> <span class="op">**)(</span>param_2 <span class="op">+</span> <span class="dv">4</span><span class="op">));</span></span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a>    BVar4 <span class="op">=</span> DebugActiveProcess<span class="op">(</span>DVar3<span class="op">);</span></span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="op">(</span>BVar4 <span class="op">!=</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a>                      <span class="co">/* </span><span class="al">WARNING</span><span class="co">: Subroutine does not return */</span></span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a>      exit<span class="op">(</span><span class="dv">0</span><span class="op">);</span></span>
+<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a>                      <span class="co">/* </span><span class="al">WARNING</span><span class="co">: Subroutine does not return */</span></span>
+<span id="cb1-42"><a href="#cb1-42" aria-hidden="true" tabindex="-1"></a>    exit<span class="op">(</span><span class="bn">0xbeef</span><span class="op">);</span></span>
+<span id="cb1-43"><a href="#cb1-43" aria-hidden="true" tabindex="-1"></a>  <span class="op">}</span></span>
+<span id="cb1-44"><a href="#cb1-44" aria-hidden="true" tabindex="-1"></a>  FUN_00401910<span class="op">(</span>PTR_s________________________<span class="op">(</span>_<span class="op">)</span>_<span class="op">/</span>_____00405000<span class="op">,</span>in_stack_fffffff0<span class="op">);</span></span>
+<span id="cb1-45"><a href="#cb1-45" aria-hidden="true" tabindex="-1"></a>  uVar5 <span class="op">=</span> FUN_00401600<span class="op">();</span></span>
+<span id="cb1-46"><a href="#cb1-46" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> <span class="op">((</span>uVar5 <span class="op">&amp;</span> <span class="bn">0xff</span><span class="op">)</span> <span class="op">==</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb1-47"><a href="#cb1-47" aria-hidden="true" tabindex="-1"></a>    FUN_00401910<span class="op">(</span><span class="st">&quot;### To start the challenge, you</span><span class="sc">\&#39;</span><span class="st">ll need to first launch this program using a debu gger!</span><span class="sc">\n</span><span class="st">&quot;</span></span>
+<span id="cb1-48"><a href="#cb1-48" aria-hidden="true" tabindex="-1"></a>                   <span class="op">,</span>in_stack_fffffff0<span class="op">);</span></span>
+<span id="cb1-49"><a href="#cb1-49" aria-hidden="true" tabindex="-1"></a>    <span class="cf">goto</span> LAB_004018de<span class="op">;</span></span>
+<span id="cb1-50"><a href="#cb1-50" aria-hidden="true" tabindex="-1"></a>  <span class="op">}</span></span>
+<span id="cb1-51"><a href="#cb1-51" aria-hidden="true" tabindex="-1"></a>  OutputDebugStringW<span class="op">((</span>LPCWSTR<span class="op">)&amp;</span>lpOutputString_004036e0<span class="op">);</span></span>
+<span id="cb1-52"><a href="#cb1-52" aria-hidden="true" tabindex="-1"></a>  OutputDebugStringW<span class="op">((</span>LPCWSTR<span class="op">)&amp;</span>lpOutputString_004036e4<span class="op">);</span></span>
+<span id="cb1-53"><a href="#cb1-53" aria-hidden="true" tabindex="-1"></a>  FUN_00401400<span class="op">();</span></span>
+<span id="cb1-54"><a href="#cb1-54" aria-hidden="true" tabindex="-1"></a>  iVar2 <span class="op">=</span> FUN_00401450<span class="op">();</span></span>
+<span id="cb1-55"><a href="#cb1-55" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> <span class="op">(</span>iVar2 <span class="op">==</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb1-56"><a href="#cb1-56" aria-hidden="true" tabindex="-1"></a>    OutputDebugStringW<span class="op">(</span><span class="st">L&quot;### Error reading the </span><span class="sc">\&#39;</span><span class="st">config.bin</span><span class="sc">\&#39;</span><span class="st"> file... Challenge aborted.</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb1-57"><a href="#cb1-57" aria-hidden="true" tabindex="-1"></a>  <span class="op">}</span></span>
+<span id="cb1-58"><a href="#cb1-58" aria-hidden="true" tabindex="-1"></a>  <span class="cf">else</span> <span class="op">{</span></span>
+<span id="cb1-59"><a href="#cb1-59" aria-hidden="true" tabindex="-1"></a>    OutputDebugStringW<span class="op">(</span></span>
+<span id="cb1-60"><a href="#cb1-60" aria-hidden="true" tabindex="-1"></a>                         <span class="st">L&quot;### Level 2: Why did the parent process get a promotion at work? Because it had a </span><span class="sc">\&quot;</span><span class="st">fork-tastic</span><span class="sc">\&quot;</span><span class="st"> child process that excelled in multitasking!</span><span class="sc">\n</span><span class="st">&quot;</span></span>
+<span id="cb1-61"><a href="#cb1-61" aria-hidden="true" tabindex="-1"></a>                         <span class="op">);</span></span>
+<span id="cb1-62"><a href="#cb1-62" aria-hidden="true" tabindex="-1"></a>    FUN_00401090<span class="op">(</span><span class="dv">3</span><span class="op">);</span></span>
+<span id="cb1-63"><a href="#cb1-63" aria-hidden="true" tabindex="-1"></a>    cVar1 <span class="op">=</span> FUN_004011d0<span class="op">();</span></span>
+<span id="cb1-64"><a href="#cb1-64" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="op">(</span>cVar1 <span class="op">==</span> <span class="ch">&#39;</span><span class="sc">\0</span><span class="ch">&#39;</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb1-65"><a href="#cb1-65" aria-hidden="true" tabindex="-1"></a>      BVar4 <span class="op">=</span> IsDebuggerPresent<span class="op">();</span></span>
+<span id="cb1-66"><a href="#cb1-66" aria-hidden="true" tabindex="-1"></a>      <span class="cf">if</span> <span class="op">(</span>BVar4 <span class="op">==</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb1-67"><a href="#cb1-67" aria-hidden="true" tabindex="-1"></a>         FUN_00401090<span class="op">(</span><span class="dv">1</span><span class="op">);</span></span>
+<span id="cb1-68"><a href="#cb1-68" aria-hidden="true" tabindex="-1"></a>         FUN_00401180<span class="op">(</span>DAT_0040509c<span class="op">);</span></span>
+<span id="cb1-69"><a href="#cb1-69" aria-hidden="true" tabindex="-1"></a>         lpOutputString <span class="op">=</span> FUN_00401000<span class="op">(</span>DAT_004050a0<span class="op">);</span></span>
+<span id="cb1-70"><a href="#cb1-70" aria-hidden="true" tabindex="-1"></a>         <span class="cf">if</span> <span class="op">(</span>lpOutputString <span class="op">==</span> <span class="op">(</span>LPWSTR<span class="op">)</span><span class="bn">0x0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb1-71"><a href="#cb1-71" aria-hidden="true" tabindex="-1"></a>           OutputDebugStringW<span class="op">(</span><span class="st">L&quot;### Something went wrong...</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb1-72"><a href="#cb1-72" aria-hidden="true" tabindex="-1"></a>         <span class="op">}</span></span>
+<span id="cb1-73"><a href="#cb1-73" aria-hidden="true" tabindex="-1"></a>         <span class="cf">else</span> <span class="op">{</span></span>
+<span id="cb1-74"><a href="#cb1-74" aria-hidden="true" tabindex="-1"></a>           OutputDebugStringW<span class="op">(</span><span class="st">L&quot;### Good job! Here</span><span class="sc">\&#39;</span><span class="st">s your flag:</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb1-75"><a href="#cb1-75" aria-hidden="true" tabindex="-1"></a>           OutputDebugStringW<span class="op">(</span><span class="st">L&quot;### ~~~ &quot;</span><span class="op">);</span></span>
+<span id="cb1-76"><a href="#cb1-76" aria-hidden="true" tabindex="-1"></a>           OutputDebugStringW<span class="op">(</span>lpOutputString<span class="op">);</span></span>
+<span id="cb1-77"><a href="#cb1-77" aria-hidden="true" tabindex="-1"></a>           OutputDebugStringW<span class="op">((</span>LPCWSTR<span class="op">)&amp;</span>lpOutputString_004039c0<span class="op">);</span></span>
+<span id="cb1-78"><a href="#cb1-78" aria-hidden="true" tabindex="-1"></a>           OutputDebugStringW<span class="op">(</span></span>
+<span id="cb1-79"><a href="#cb1-79" aria-hidden="true" tabindex="-1"></a>                                <span class="st">L&quot;### (Note: The flag could become corrupted if the process state is tam pered with in any way.)</span><span class="sc">\n\n</span><span class="st">&quot;</span></span>
+<span id="cb1-80"><a href="#cb1-80" aria-hidden="true" tabindex="-1"></a>                                <span class="op">);</span></span>
+<span id="cb1-81"><a href="#cb1-81" aria-hidden="true" tabindex="-1"></a>           free<span class="op">(</span>lpOutputString<span class="op">);</span></span>
+<span id="cb1-82"><a href="#cb1-82" aria-hidden="true" tabindex="-1"></a>         <span class="op">}</span></span>
+<span id="cb1-83"><a href="#cb1-83" aria-hidden="true" tabindex="-1"></a>         <span class="cf">goto</span> LAB_004018ce<span class="op">;</span></span>
+<span id="cb1-84"><a href="#cb1-84" aria-hidden="true" tabindex="-1"></a>      <span class="op">}</span></span>
+<span id="cb1-85"><a href="#cb1-85" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb1-86"><a href="#cb1-86" aria-hidden="true" tabindex="-1"></a>    OutputDebugStringW<span class="op">(</span></span>
+<span id="cb1-87"><a href="#cb1-87" aria-hidden="true" tabindex="-1"></a>                         <span class="st">L&quot;### Oops! The debugger was detected. Try to bypass this check to get the fla g!</span><span class="sc">\n</span><span class="st">&quot;</span></span>
+<span id="cb1-88"><a href="#cb1-88" aria-hidden="true" tabindex="-1"></a>                         <span class="op">);</span></span>
+<span id="cb1-89"><a href="#cb1-89" aria-hidden="true" tabindex="-1"></a>  <span class="op">}</span></span>
+<span id="cb1-90"><a href="#cb1-90" aria-hidden="true" tabindex="-1"></a>LAB_004018ce<span class="op">:</span></span>
+<span id="cb1-91"><a href="#cb1-91" aria-hidden="true" tabindex="-1"></a>  free<span class="op">(</span>DAT_00405098<span class="op">);</span></span>
+<span id="cb1-92"><a href="#cb1-92" aria-hidden="true" tabindex="-1"></a>LAB_004018de<span class="op">:</span></span>
+<span id="cb1-93"><a href="#cb1-93" aria-hidden="true" tabindex="-1"></a>  CloseHandle<span class="op">(</span>hObject<span class="op">);</span></span>
+<span id="cb1-94"><a href="#cb1-94" aria-hidden="true" tabindex="-1"></a>  OutputDebugStringW<span class="op">((</span>LPCWSTR<span class="op">)&amp;</span>lpOutputString_00403a88<span class="op">);</span></span>
+<span id="cb1-95"><a href="#cb1-95" aria-hidden="true" tabindex="-1"></a>  OutputDebugStringW<span class="op">((</span>LPCWSTR<span class="op">)&amp;</span>lpOutputString_00403a8c<span class="op">);</span></span>
+<span id="cb1-96"><a href="#cb1-96" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-97"><a href="#cb1-97" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p>Right away, we notice more checks. I will concisely explain the user-code before moving to the assembly.</p>
+<h3 id="1-admin-privileges-check"><a href="#1-admin-privileges-check" class="anchor">#</a>#1. Admin privileges check</h3>
+<div class="sourceCode" id="cb2"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>iVar2 <span class="op">=</span> FUN_004012f0<span class="op">();</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="op">(</span>iVar2 <span class="op">==</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  FUN_00401910<span class="op">(</span><span class="st">&quot;[ERROR] There are permission issues. This program requires debug privileges and hence you might want to run it as an Admin.</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">,</span> in_stack_fffffff0<span class="op">);</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  FUN_00401910<span class="op">(</span><span class="st">&quot;Challenge aborted. Please run this program as an Admin. Exiting now...</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">,</span> in_stack_fffffff0<span class="op">);</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  exit<span class="op">(</span><span class="bn">0xff</span><span class="op">);</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<ul>
+<li>Ensures the program runs with admin privileges</li>
+<li>Exits with error if check fails</li>
+<li>For good practice, this will be the first check we bypass</li>
+</ul>
+<h3 id="2-mutex-check"><a href="#2-mutex-check" class="anchor">#</a>#2. Mutex check</h3>
+<div class="sourceCode" id="cb3"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>hObject <span class="op">=</span> CreateMutexW<span class="op">((</span>LPSECURITY_ATTRIBUTES<span class="op">)</span><span class="bn">0x0</span><span class="op">,</span> <span class="dv">0</span><span class="op">,</span> <span class="st">L&quot;WinAntiDbg0x200&quot;</span><span class="op">);</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="op">(</span>hObject <span class="op">==</span> <span class="op">(</span>HANDLE<span class="op">)</span><span class="bn">0x0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  FUN_00401910<span class="op">(</span><span class="st">&quot;[ERROR] Failed to create the Mutex. Exiting now...</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">,</span> in_stack_fffffff0<span class="op">);</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  exit<span class="op">(</span><span class="bn">0xff</span><span class="op">);</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>DVar3 <span class="op">=</span> GetLastError<span class="op">();</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="op">(</span>DVar3 <span class="op">==</span> <span class="bn">0xb7</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> <span class="op">(</span>param_1 <span class="op">!=</span> <span class="dv">2</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    FUN_00401910<span class="op">(</span><span class="st">&quot;[ERROR] Expected an argument</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">,</span> in_stack_fffffff0<span class="op">);</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    exit<span class="op">(</span><span class="bn">0xbeef</span><span class="op">);</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>  <span class="op">}</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>  DVar3 <span class="op">=</span> atoi<span class="op">(*(</span><span class="dt">char</span> <span class="op">**)(</span>param_2 <span class="op">+</span> <span class="dv">4</span><span class="op">));</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>  BVar4 <span class="op">=</span> DebugActiveProcess<span class="op">(</span>DVar3<span class="op">);</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> <span class="op">(</span>BVar4 <span class="op">!=</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>    exit<span class="op">(</span><span class="dv">0</span><span class="op">);</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>  <span class="op">}</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>  exit<span class="op">(</span><span class="bn">0xbeef</span><span class="op">);</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<ul>
+<li>Creates a mutex to ensure only one instance runs</li>
+<li>If mutex already exists (error 0xB7), checks for command-line arguments</li>
+<li>If present, tries to debug the process with PID from arguments</li>
+<li>Don't worry about bypassing this, it's just to make sure only one instance is running</li>
+</ul>
+<h3 id="3-initial-debugger-check"><a href="#3-initial-debugger-check" class="anchor">#</a>#3. Initial debugger check</h3>
+<div class="sourceCode" id="cb4"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>uVar5 <span class="op">=</span> FUN_00401600<span class="op">();</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="op">((</span>uVar5 <span class="op">&amp;</span> <span class="bn">0xff</span><span class="op">)</span> <span class="op">==</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  FUN_00401910<span class="op">(</span><span class="st">&quot;### To start the challenge, you</span><span class="sc">\&#39;</span><span class="st">ll need to first launch this program using a debugger!</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">,</span> in_stack_fffffff0<span class="op">);</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="cf">goto</span> LAB_004018de<span class="op">;</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<ul>
+<li>Ironically requires a debugger to be present initially</li>
+<li>If no debugger is detected, displays message to run with debugger</li>
+<li>Don't worry about bypassing this either, since we'll have a debugger active anyways</li>
+</ul>
+<h3 id="4-config-file-check"><a href="#4-config-file-check" class="anchor">#</a>#4. Config file check</h3>
+<div class="sourceCode" id="cb5"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>iVar2 <span class="op">=</span> FUN_00401450<span class="op">();</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="op">(</span>iVar2 <span class="op">==</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  OutputDebugStringW<span class="op">(</span><span class="st">L&quot;### Error reading the </span><span class="sc">\&#39;</span><span class="st">config.bin</span><span class="sc">\&#39;</span><span class="st"> file... Challenge aborted.</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<ul>
+<li>Verifies if "config.bin" file can be read</li>
+<li>Aborts if file cannot be accessed</li>
+<li>Again, don't worry about bypassing this check</li>
+</ul>
+<h3 id="5-custom-check"><a href="#5-custom-check" class="anchor">#</a>#5. Custom check</h3>
+<div class="sourceCode" id="cb6"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>cVar1 <span class="op">=</span> FUN_004011d0<span class="op">();</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="op">(</span>cVar1 <span class="op">==</span> <span class="ch">&#39;</span><span class="sc">\0</span><span class="ch">&#39;</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Proceeds to next check if passed</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<ul>
+<li>Must return '\0' to continue</li>
+<li>This will be the second check we bypass</li>
+</ul>
+<h3 id="6-standard-debugger-check"><a href="#6-standard-debugger-check" class="anchor">#</a>#6. Standard debugger check</h3>
+<div class="sourceCode" id="cb7"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>BVar4 <span class="op">=</span> IsDebuggerPresent<span class="op">();</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="op">(</span>BVar4 <span class="op">==</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Proceeds to flag decryption if passed</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<ul>
+<li>Standard Windows API to detect debuggers</li>
+<li>Must return 0 (no debugger detected) to reach the flag</li>
+<li>Third check we will bypass</li>
+</ul>
+<h3 id="7-flag-decryption"><a href="#7-flag-decryption" class="anchor">#</a>#7. Flag decryption</h3>
+<div class="sourceCode" id="cb8"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>FUN_00401090<span class="op">(</span><span class="dv">1</span><span class="op">);</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>FUN_00401180<span class="op">(</span>DAT_0040509c<span class="op">);</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>lpOutputString <span class="op">=</span> FUN_00401000<span class="op">(</span>DAT_004050a0<span class="op">);</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="op">(</span>lpOutputString <span class="op">==</span> <span class="op">(</span>LPWSTR<span class="op">)</span><span class="bn">0x0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>  OutputDebugStringW<span class="op">(</span><span class="st">L&quot;### Something went wrong...</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a><span class="cf">else</span> <span class="op">{</span></span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>  OutputDebugStringW<span class="op">(</span><span class="st">L&quot;### Good job! Here</span><span class="sc">\&#39;</span><span class="st">s your flag:</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>  OutputDebugStringW<span class="op">(</span><span class="st">L&quot;### ~~~ &quot;</span><span class="op">);</span></span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>  OutputDebugStringW<span class="op">(</span>lpOutputString<span class="op">);</span></span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>  OutputDebugStringW<span class="op">((</span>LPCWSTR<span class="op">)&amp;</span>lpOutputString_004039c0<span class="op">);</span></span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>  OutputDebugStringW<span class="op">(</span><span class="st">L&quot;### (Note: The flag could become corrupted if the process state is tampered with in any way.)</span><span class="sc">\n\n</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a>  free<span class="op">(</span>lpOutputString<span class="op">);</span></span>
+<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<ul>
+<li>Only runs if all previous checks pass</li>
+<li>Decrypts and displays the flag</li>
+<li>We want to reach this</li>
+</ul>
+<blockquote>
+<p>HEAVY WORK IN PROGRESS BEYOND THIS POINT</p>
+</blockquote>
+<h2 id="understanding-the-assembly"><a href="#understanding-the-assembly" class="anchor">#</a>Understanding the assembly</h2>
+<p>Like in <em>WinAntiDbg0x100</em>, we will find the corresponding <code>TEST</code> calls for each crucial check. <strong>KEEP IN MIND</strong>: As discussed in my <a href="https://rivers.sh/posts/winantidbg0x100" target="_blank" rel="noopener">WinAntiDbg0x100</a> writeup, the memory addresses in Ghidra and x32dbg might not line up exactly, but the last 4 digits will, so we'll just use those (easier anyways).</p>
+<p>Unlike WinAntiDbg0x100, this challenge uses both the EAX and EDX register, as well as both the JE and JNE jump instructions. Before explaining the assembly, let's quickly refresh on the difference between <strong>JE &amp; JNE</strong>:</p>
+<ul>
+<li><strong>JE (Jump if Equal)</strong>: Jumps to a specified address if the comparison result is equal (zero flag is set). Also called JZ (Jump if Zero).</li>
+<li><strong>JNE (Jump if Not Equal)</strong>: Jumps to a specified address if the comparison result is not equal (zero flag is clear). Also called JNZ (Jump if Not Zero).</li>
+</ul>
+<h3 id="first-check-admin-privileges-check---16eb"><a href="#first-check-admin-privileges-check---16eb" class="anchor">#</a>First Check (Admin Privileges Check) - 16eb</h3>
+<pre><code>004016eb 85 c0       TEST     EAX,EAX
+004016ed 75 25       JNZ      LAB_00401714</code></pre>
+<p>This check tests if the program has sufficient privileges:</p>
+<ul>
+<li><code>TEST EAX,EAX</code> performs a bitwise AND on EAX with itself (common way to check if a value is zero)</li>
+<li><code>JNZ LAB_00401714</code> jumps if the result is not zero (meaning privileges are present), and we continue</li>
+<li><code>If EAX = 0</code> (no privileges), it continues to the error message and exits, and we lose</li>
+</ul>
+<h3 id="second-check-if-cvar1--0-condition---1824"><a href="#second-check-if-cvar1--0-condition---1824" class="anchor">#</a>Second Check (<code>if (cVar1 == '\0')</code> condition) - 1824</h3>
+<pre><code>00401824 85 d2       TEST     EDX,EDX
+00401826 75 0a       JNZ      LAB_00401832</code></pre>
+<p>This corresponds to the <code>cVar1 = FUN_004011d0();</code> check</p>
+<ul>
+<li><code>TEST EDX,EDX</code> checks if EDX is zero</li>
+<li><code>JNZ LAB_00401832</code> jumps if debugger is detected (EDX != 0)</li>
+<li>If EDX = 0 (no debugger detected by custom function), it continues to the next check</li>
+</ul>
+<h3 id="third-check-isdebuggerpresent-check---182e"><a href="#third-check-isdebuggerpresent-check---182e" class="anchor">#</a>Third Check (IsDebuggerPresent Check) - 182e</h3>
+<pre><code>0040182e 85 c0       TEST     EAX,EAX
+00401830 74 15       JZ       LAB_00401847</code></pre>
+<p>This corresponds to the <code>BVar4 = IsDebuggerPresent();</code> check</p>
+<ul>
+<li><code>TEST EAX,EAX</code> checks if EAX is zero</li>
+<li><code>JZ LAB_00401847</code> jumps if EAX = 0 (no debugger detected by Windows API)</li>
+<li>This is the opposite logic from the previous checks - it jumps if condition is met (debugger not present)</li>
+</ul>
+<h2 id="bypassing-all-3-checks"><a href="#bypassing-all-3-checks" class="anchor">#</a>Bypassing all 3 checks</h2>
+<p>Knowing this, all you have to do is manually set breakpoints at the corresponding instructions (16eb, 1824, 182e) and edit the EAX/EDX values accordingly.</p>
+<ol type="1">
+<li>16eb - <em>JNE call</em>, set <strong>EAX</strong> to 1 to take the jump (bypassing admin check)</li>
+<li>1824 - <em>JNE call</em>, set <strong>EDX</strong> to 0 to avoid taking jump, as taking jump will skip over the 3rd check, subsequently denying the flag!)</li>
+<li>1830 - <em>JE</em> call, set EDX to 0 to take the jump, giving us our flag</li>
+</ol>
+<p>flag: <code>picoCTF{0x200_debug_f0r_Win_e6b68f6e}</code></p>
+
+    </div>
+
+    <nav class="post-nav" aria-label="more posts">
+        <a class="prev" href="/posts/picoctf-winantidbg0x100/" rel="prev"><span class="post-nav-label">‹ older</span>picoCTF: WinAntiDbg0x100</a>
+        <a class="next" href="/posts/picoctf-winantidbg0x300/" rel="next"><span class="post-nav-label">newer ›</span>PicoCTF: WinAntiDbg0x300</a>
+    </nav>
+</article>
+
+<aside class="post-aside" aria-label="on this page">
+    <ul class="aside-actions">
+        <li><a href="/posts/picoctf-winantidbg0x100/" title="older: picoCTF: WinAntiDbg0x100" aria-label="older post">‹</a></li>
+        <li><a href="/posts/picoctf-winantidbg0x300/" title="newer: PicoCTF: WinAntiDbg0x300" aria-label="newer post">›</a></li>
+        <li><a href="#top" class="to-top" title="back to top" aria-label="back to top">↑</a></li>
+    </ul>
+    <nav class="toc toc-side" aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#prev-winantidbg0x100-next-winantidbg0x300">prev: winantidbg0x100 next: winantidbg0x300</a></li><li class="toc-h2"><a href="#understanding-the-user-code">Understanding the user-code</a></li><li class="toc-h3"><a href="#1-admin-privileges-check">#1. Admin privileges check</a></li><li class="toc-h3"><a href="#2-mutex-check">#2. Mutex check</a></li><li class="toc-h3"><a href="#3-initial-debugger-check">#3. Initial debugger check</a></li><li class="toc-h3"><a href="#4-config-file-check">#4. Config file check</a></li><li class="toc-h3"><a href="#5-custom-check">#5. Custom check</a></li><li class="toc-h3"><a href="#6-standard-debugger-check">#6. Standard debugger check</a></li><li class="toc-h3"><a href="#7-flag-decryption">#7. Flag decryption</a></li><li class="toc-h2"><a href="#understanding-the-assembly">Understanding the assembly</a></li><li class="toc-h3"><a href="#first-check-admin-privileges-check---16eb">First Check (Admin Privileges Check) - 16eb</a></li><li class="toc-h3"><a href="#second-check-if-cvar1--0-condition---1824">Second Check (if (cVar1 == &#39;\0&#39;) condition) - 1824</a></li><li class="toc-h3"><a href="#third-check-isdebuggerpresent-check---182e">Third Check (IsDebuggerPresent Check) - 182e</a></li><li class="toc-h2"><a href="#bypassing-all-3-checks">Bypassing all 3 checks</a></li></ol></nav>
+</aside>
+
+        </main>
+        <footer class="site-footer">
+    <span class="footer-left">
+        <span>&copy; 2024–2026 river</span>
+        <button type="button" class="contact-button" aria-controls="toast" data-label="email" data-value="bG92ZS5yaXZlcnNAcHJvdG9uLm1l">email</button><button type="button" class="contact-button" aria-controls="toast" data-label="signal" data-value="cml2LjEzMzc=">signal</button>
+    </span>
+    <span class="footer-links">
+        <a href="/atom.xml">atom</a>
+        <button type="button" class="scheme-toggle" title="switch colour scheme">scheme: <span class="scheme-name">river</span></button>
+    </span>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</footer>
+
+    </div>
+    <script src="/js/main.js" defer></script>
+    
+    
+    <script>
+    // oneko chases the cursor, so skip it on touch screens
+    (function () {
+      if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+      var s = document.createElement("script");
+      s.src = "/js/oneko.js";
+      document.body.appendChild(s);
+    })();
+    </script>
+    
+</body>
+</html>

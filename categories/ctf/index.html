@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en" data-scheme="river" data-schemes="river">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CTF · river</title>
+    <meta name="description" content="ctf&#39;s, cybersecurity, hackthebox, philosophy, everything">
+    <meta name="author" content="river">
+    <link rel="canonical" href="https://rivers.sh/categories/ctf/">
+    <meta property="og:site_name" content="river">
+    <meta property="og:title" content="CTF">
+    <meta property="og:description" content="ctf&#39;s, cybersecurity, hackthebox, philosophy, everything">
+    <meta property="og:url" content="https://rivers.sh/categories/ctf/">
+    <meta property="og:type" content="website">
+    <link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+    <link rel="alternate" type="application/atom+xml" title="river" href="/atom.xml">
+    <link rel="preload" href="/fonts/MesloLGS-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/syntax.css">
+    <script>
+    // Runs before first paint: restore the visitor's colour scheme and pick the
+    // background art, so neither flashes in after load.
+    (function () {
+      var d = document.documentElement;
+      try {
+        var s = localStorage.getItem("scheme");
+        if (s && d.getAttribute("data-schemes").split(" ").indexOf(s) !== -1) d.setAttribute("data-scheme", s);
+      } catch (e) {}
+      var art = ["/images/art/art1.jpg"];
+      if (!art.length) return;
+      var i = Math.floor(Math.random() * art.length);
+      try {
+        // don't show the same art twice in a row
+        var last = parseInt(localStorage.getItem("art-last"), 10);
+        if (art.length > 1 && i === last) i = (i + 1 + Math.floor(Math.random() * (art.length - 1))) % art.length;
+        localStorage.setItem("art-last", i);
+      } catch (e) {}
+      var a = typeof art[i] === "string" ? { src: art[i] } : art[i];
+      d.style.setProperty("--art", 'url("' + a.src + '")');
+      d.style.setProperty("--art-pos", a.position || "right bottom");
+      d.setAttribute("data-art", "");
+    })();
+    </script>
+</head>
+<body class="">
+    <a class="skip-link" href="#main">skip to content</a>
+    <div class="page">
+        <header class="site-header">
+    <a class="site-title" href="/">river</a>
+    <nav class="site-nav" aria-label="site">
+        <ul><li><a href="/">home</a></li><li><a href="/blog/">blog</a></li><li><a href="/categories/">categories</a></li><li><a href="/tags/">tags</a></li><li><a href="/search/">search</a></li></ul>
+    </nav>
+</header>
+
+        <main id="main">
+<section class="listing">
+    <h1 class="page-title"><span class="page-kind">category</span> CTF</h1>
+    <p class="page-sub">22 posts · <a href="/categories/">browse all</a></p>
+    <ul class="post-list">
+        <li>
+    <time datetime="2026-01-28">Jan 28, 2026</time>
+    <span class="item">
+        <a class="item-title" href="/posts/ropemporium-callme/">ROP Emporium: callme</a>
+        <span class="item-desc">Chaining PLT calls with a multi-argument ROP gadget to invoke three functions in sequence</span>
+    </span>
+</li>
+<li>
+    <time datetime="2026-01-27">Jan 27, 2026</time>
+    <span class="item">
+        <a class="item-title" href="/posts/ropemporium-split/">ROP Emporium: split</a>
+        <span class="item-desc">Building a ROP chain to call system() with a custom string argument</span>
+    </span>
+</li>
+<li>
+    <time datetime="2026-01-25">Jan 25, 2026</time>
+    <span class="item">
+        <a class="item-title" href="/posts/ropemporium-ret2win/">ROP Emporium: ret2win</a>
+        <span class="item-desc">Classic buffer overflow exploiting a vulnerable read() to redirect execution to a win function</span>
+    </span>
+</li>
+<li>
+    <time datetime="2025-05-02">May 2, 2025</time>
+    <span class="item">
+        <a class="item-title" href="/posts/picoctf-binaryinstrumentation2/">picoCTF: Binary Instrumentation II</a>
+        <span class="item-desc">Intercepting & monitoring Windows API calls to find a flag in a hidden buffer</span>
+    </span>
+</li>
+<li>
+    <time datetime="2025-05-01">May 1, 2025</time>
+    <span class="item">
+        <a class="item-title" href="/posts/picoctf-binaryinstrumentation1/">PicoCTF: Binary Instrumentation I</a>
+        <span class="item-desc">Bypassing sleep functions using Frida</span>
+    </span>
+</li>
+<li>
+    <time datetime="2025-04-23">Apr 23, 2025</time>
+    <span class="item">
+        <a class="item-title" href="/posts/picoctf-factcheck/">picoCTF: FactCheck</a>
+        <span class="item-desc">Reversing decompiled C++ code to extract a flag by tracing string manipulation logic</span>
+    </span>
+</li>
+<li>
+    <time datetime="2025-04-22">Apr 22, 2025</time>
+    <span class="item">
+        <a class="item-title" href="/posts/picoctf-winantidbg0x300/">PicoCTF: WinAntiDbg0x300</a> <span class="kind">(pinned)</span>
+        <span class="item-desc">Bypassing an infinite debugger-killing loop by NOP'ing an unconditional jump</span>
+    </span>
+</li>
+<li>
+    <time datetime="2025-04-03">Apr 3, 2025</time>
+    <span class="item">
+        <a class="item-title" href="/posts/picoctf-winantidbg0x200/">picoCTF: WinAntiDbg0x200</a>
+        <span class="item-desc">Further bypassing anti-debugging checks by editing register values</span>
+    </span>
+</li>
+<li>
+    <time datetime="2025-02-08">Feb 8, 2025</time>
+    <span class="item">
+        <a class="item-title" href="/posts/picoctf-winantidbg0x100/">picoCTF: WinAntiDbg0x100</a>
+        <span class="item-desc">Bypassing simple anti-debugging techniques in a Windows executable through dynamic analysis</span>
+    </span>
+</li>
+<li>
+    <time datetime="2024-11-02">Nov 2, 2024</time>
+    <span class="item">
+        <a class="item-title" href="/posts/picoctf-weirdsnake/">PicoCTF: Weird Snake</a>
+        <span class="item-desc">Analyzing bytecode to reverse engineer an XOR key</span>
+    </span>
+</li>
+<li>
+    <time datetime="2024-11-02">Nov 2, 2024</time>
+    <span class="item">
+        <a class="item-title" href="/posts/picoctf-shop/">picoCTF: Shop</a>
+        <span class="item-desc">Learning Ghidra basics</span>
+    </span>
+</li>
+<li>
+    <time datetime="2024-11-02">Nov 2, 2024</time>
+    <span class="item">
+        <a class="item-title" href="/posts/picoctf-crackmepy/">picoCTF: Crackme-py</a>
+        <span class="item-desc">A simple python challenge</span>
+    </span>
+</li>
+<li>
+    <time datetime="2024-10-30">Oct 30, 2024</time>
+    <span class="item">
+        <a class="item-title" href="/posts/picoctf-packer/">PicoCTF: Packer</a>
+        <span class="item-desc">Reverse engineering a simple linux executable</span>
+    </span>
+</li>
+<li>
+    <time datetime="2024-10-22">Oct 22, 2024</time>
+    <span class="item">
+        <a class="item-title" href="/posts/picoctf-heap3/">picoCTF: Heap 3</a>
+        <span class="item-desc">Leveraging a UAF vulnerability to manipulate heap allocation</span>
+    </span>
+</li>
+<li>
+    <time datetime="2024-10-22">Oct 22, 2024</time>
+    <span class="item">
+        <a class="item-title" href="/posts/picoctf-heap2/">PicoCTF: Heap 2</a>
+        <span class="item-desc">Utilizing a buffer overflow payloads to override pointers</span>
+    </span>
+</li>
+<li>
+    <time datetime="2024-10-22">Oct 22, 2024</time>
+    <span class="item">
+        <a class="item-title" href="/posts/picoctf-heap1/">PicoCTF: Heap 1</a>
+        <span class="item-desc">Writing and understanding a buffer overflow payloads</span>
+    </span>
+</li>
+<li>
+    <time datetime="2024-09-14">Sep 14, 2024</time>
+    <span class="item">
+        <a class="item-title" href="/posts/picoctf-trickster/">picoCTF: Trickster</a>
+        <span class="item-desc">Exploiting a site that only accepts PNG files</span>
+    </span>
+</li>
+<li>
+    <time datetime="2024-08-27">Aug 27, 2024</time>
+    <span class="item">
+        <a class="item-title" href="/posts/picoctf-formatstring2/">picoCTF: Format String 2</a>
+        <span class="item-desc">Writing and understanding a format string payloads</span>
+    </span>
+</li>
+<li>
+    <time datetime="2024-08-27">Aug 27, 2024</time>
+    <span class="item">
+        <a class="item-title" href="/posts/picoctf-formatstring1/">picoCTF: Format String 1</a>
+        <span class="item-desc">Easy format string vulnerability</span>
+    </span>
+</li>
+<li>
+    <time datetime="2024-08-21">Aug 21, 2024</time>
+    <span class="item">
+        <a class="item-title" href="/posts/picoctf-vne/">picoCTF: VNE</a>
+        <span class="item-desc">Abusing environment variables</span>
+    </span>
+</li>
+<li>
+    <time datetime="2024-08-13">Aug 13, 2024</time>
+    <span class="item">
+        <a class="item-title" href="/posts/n00bzctf-sillygoose/">N00bzCTF: Sillygoose</a>
+        <span class="item-desc">Exploiting a simple number search binary game</span>
+    </span>
+</li>
+<li>
+    <time datetime="2024-08-13">Aug 13, 2024</time>
+    <span class="item">
+        <a class="item-title" href="/posts/litctf-jwt/">litCTF: JWT</a>
+        <span class="item-desc">Exploiting JSON Web Tokens</span>
+    </span>
+</li>
+
+    </ul>
+</section>
+
+        </main>
+        <footer class="site-footer">
+    <span class="footer-left">
+        <span>&copy; 2024–2026 river</span>
+        <button type="button" class="contact-button" aria-controls="toast" data-label="email" data-value="bG92ZS5yaXZlcnNAcHJvdG9uLm1l">email</button><button type="button" class="contact-button" aria-controls="toast" data-label="signal" data-value="cml2LjEzMzc=">signal</button>
+    </span>
+    <span class="footer-links">
+        <a href="/atom.xml">atom</a>
+        <button type="button" class="scheme-toggle" title="switch colour scheme">scheme: <span class="scheme-name">river</span></button>
+    </span>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</footer>
+
+    </div>
+    <script src="/js/main.js" defer></script>
+    
+    
+    <script>
+    // oneko chases the cursor, so skip it on touch screens
+    (function () {
+      if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+      var s = document.createElement("script");
+      s.src = "/js/oneko.js";
+      document.body.appendChild(s);
+    })();
+    </script>
+    
+</body>
+</html>

