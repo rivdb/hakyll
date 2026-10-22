@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en" data-scheme="river" data-schemes="river">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>picoCTF: Crackme-py · river</title>
+    <meta name="description" content="A simple python challenge">
+    <meta name="author" content="river">
+    <link rel="canonical" href="https://rivers.sh/posts/picoctf-crackmepy/">
+    <meta property="og:site_name" content="river">
+    <meta property="og:title" content="picoCTF: Crackme-py">
+    <meta property="og:description" content="A simple python challenge">
+    <meta property="og:url" content="https://rivers.sh/posts/picoctf-crackmepy/">
+    <meta property="og:type" content="article">
+    <meta property="og:image" content="https://rivers.sh/images/og.jpg">
+    <meta name="twitter:card" content="summary">
+    <link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+    <link rel="alternate" type="application/atom+xml" title="river" href="/atom.xml">
+    <link rel="preload" href="/fonts/MesloLGS-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/syntax.css">
+    <script>
+    // Runs before first paint: restore the visitor's colour scheme and pick the
+    // background art, so neither flashes in after load.
+    (function () {
+      var d = document.documentElement;
+      try {
+        var s = localStorage.getItem("scheme");
+        if (s && d.getAttribute("data-schemes").split(" ").indexOf(s) !== -1) d.setAttribute("data-scheme", s);
+      } catch (e) {}
+      var art = ["/images/art/art1.jpg"];
+      if (!art.length) return;
+      var i = Math.floor(Math.random() * art.length);
+      try {
+        // don't show the same art twice in a row
+        var last = parseInt(localStorage.getItem("art-last"), 10);
+        if (art.length > 1 && i === last) i = (i + 1 + Math.floor(Math.random() * (art.length - 1))) % art.length;
+        localStorage.setItem("art-last", i);
+      } catch (e) {}
+      var a = typeof art[i] === "string" ? { src: art[i] } : art[i];
+      d.style.setProperty("--art", 'url("' + a.src + '")');
+      d.style.setProperty("--art-pos", a.position || "right bottom");
+      d.setAttribute("data-art", "");
+    })();
+    </script>
+</head>
+<body class="is-post">
+    <a class="skip-link" href="#main">skip to content</a>
+    <div class="page">
+        <header class="site-header">
+    <a class="site-title" href="/">river</a>
+    <nav class="site-nav" aria-label="site">
+        <ul><li><a href="/">home</a></li><li><a href="/blog/">blog</a></li><li><a href="/categories/">categories</a></li><li><a href="/tags/">tags</a></li><li><a href="/search/">search</a></li></ul>
+    </nav>
+</header>
+
+        <main id="main">
+<article class="post h-entry">
+    <header class="post-header">
+        <h1 class="post-title p-name">picoCTF: Crackme-py</h1>
+        <!-- no whitespace between items: the "|" separators supply the spacing -->
+        <div class="post-meta"><time class="dt-published" datetime="2024-11-02">Nov 2, 2024</time><span>3 min read</span><span class="post-cats"><a href="/categories/ctf/">CTF</a> › <a href="/categories/ctf/picoctf2024/">picoCTF2024</a> › <a href="/categories/ctf/picoctf2024/medium/">Medium</a></span><span class="post-tags"><a class="p-category" href="/tags/reverse-engineering/">#Reverse Engineering</a> <a class="p-category" href="/tags/python/">#Python</a> <a class="p-category" href="/tags/cryptography/">#Cryptography</a></span></div>
+        <p class="post-description p-summary">A simple python challenge</p>
+    </header>
+
+    
+    <details class="toc toc-inline">
+        <summary>contents</summary>
+        <nav aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#understanding-crackmepy">Understanding crackme.py</a></li><li class="toc-h2"><a href="#the-solution">The solution</a></li></ol></nav>
+    </details>
+    
+
+    <div class="prose e-content" tabindex="-1">
+
+<h2 id="challenge-info"><a href="#challenge-info" class="anchor">#</a>Challenge Info</h2>
+<p><a href="https://mercury.picoctf.net/static/f440bf2510a28914afae2947749f2db0/crackme.py" target="_blank" rel="noopener">crackme.py</a></p>
+<p>The code for your convenience:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode py"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Hiding this really important number in an obscure piece of code is brilliant!</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="co"># AND it&#39;s encrypted!</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="co"># This want our biggest client to know his information is safe with us.</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>bezos_cc_secret <span class="op">=</span> <span class="st">&quot;A:4@r</span><span class="sc">%u</span><span class="st">L`M-^M0c0AbcM-MFE0g4dd`_cgN&quot;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="co"># Reference alphabet</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>alphabet <span class="op">=</span> <span class="st">&quot;!</span><span class="ch">\&quot;</span><span class="st">#$%&amp;&#39;()*+,-./0123456789:;&lt;=&gt;?@ABCDEFGHIJKLMNOPQRSTUVWXYZ&quot;</span><span class="op">+</span> <span class="op">\</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>            <span class="st">&quot;[</span><span class="ch">\\</span><span class="st">]^_`abcdefghijklmnopqrstuvwxyz{|}~&quot;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> decode_secret(secret):</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    <span class="co">&quot;&quot;&quot;ROT47 decode</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a><span class="co">    </span><span class="al">NOTE</span><span class="co">: encode and decode are the same operation in the ROT cipher family.</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="co">    &quot;&quot;&quot;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Encryption key</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    rotate_const <span class="op">=</span> <span class="dv">47</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Storage for decoded secret</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>    decoded <span class="op">=</span> <span class="st">&quot;&quot;</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>    <span class="co"># decode loop</span></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> c <span class="kw">in</span> secret:</span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>        index <span class="op">=</span> alphabet.find(c)</span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>        original_index <span class="op">=</span> (index <span class="op">+</span> rotate_const) <span class="op">%</span> <span class="bu">len</span>(alphabet)</span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>        decoded <span class="op">=</span> decoded <span class="op">+</span> alphabet[original_index]</span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(decoded)</span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> choose_greatest():</span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a>    <span class="co">&quot;&quot;&quot;Echo the largest of the two numbers given by the user to the program</span></span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a><span class="co">    Warning: this function was written quickly and needs proper error handling</span></span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a><span class="co">    &quot;&quot;&quot;</span></span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a>    user_value_1 <span class="op">=</span> <span class="bu">input</span>(<span class="st">&quot;What&#39;s your first number? &quot;</span>)</span>
+<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a>    user_value_2 <span class="op">=</span> <span class="bu">input</span>(<span class="st">&quot;What&#39;s your second number? &quot;</span>)</span>
+<span id="cb1-42"><a href="#cb1-42" aria-hidden="true" tabindex="-1"></a>    greatest_value <span class="op">=</span> user_value_1 <span class="co"># need a value to return if 1 &amp; 2 are equal</span></span>
+<span id="cb1-43"><a href="#cb1-43" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-44"><a href="#cb1-44" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> user_value_1 <span class="op">&gt;</span> user_value_2:</span>
+<span id="cb1-45"><a href="#cb1-45" aria-hidden="true" tabindex="-1"></a>        greatest_value <span class="op">=</span> user_value_1</span>
+<span id="cb1-46"><a href="#cb1-46" aria-hidden="true" tabindex="-1"></a>    <span class="cf">elif</span> user_value_1 <span class="op">&lt;</span> user_value_2:</span>
+<span id="cb1-47"><a href="#cb1-47" aria-hidden="true" tabindex="-1"></a>        greatest_value <span class="op">=</span> user_value_2</span>
+<span id="cb1-48"><a href="#cb1-48" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-49"><a href="#cb1-49" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>( <span class="st">&quot;The number with largest positive magnitude is &quot;</span></span>
+<span id="cb1-50"><a href="#cb1-50" aria-hidden="true" tabindex="-1"></a>        <span class="op">+</span> <span class="bu">str</span>(greatest_value) )</span>
+<span id="cb1-51"><a href="#cb1-51" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-52"><a href="#cb1-52" aria-hidden="true" tabindex="-1"></a>choose_greatest()</span></code></pre></div>
+<h2 id="understanding-crackmepy"><a href="#understanding-crackmepy" class="anchor">#</a>Understanding crackme.py</h2>
+<p>Let's break down step-by-step what each part of <code>crackme.py</code> does:</p>
+<ul>
+<li>Reference alphabet is defined:
+<ul>
+<li>A string called <code>alphabet</code> is defined, this includes special characters, numbers, and letters. This will be used as the foundation for encoding and decoding</li>
+</ul></li>
+<li><code>decode_secret</code> function is defined:
+<ul>
+<li>The <code>decode_secret</code> function is made to decode a message, <code>bezos_cc_secret</code>, using ROT47</li>
+<li>ROT47 works by shifting each character in the string by 47 positions (hence the 47) within the <code>alphabet</code> string</li>
+<li>For each char in <code>bezos_cc_secret</code>, <code>decode_secret</code> will:
+<ul>
+<li>Find the char's position (index) in the <code>alphabet</code> string</li>
+<li>Add 47 to the index, then wrap around the alphabet if needed, and find the new character</li>
+<li>Append this new char to the decoded message</li>
+<li>Then print the decoded message to reveal the hidden content of <code>bezos_cc_secret</code> (AKA our flag)</li>
+</ul></li>
+</ul></li>
+<li><code>choose_greatest</code> function is defined:
+<ul>
+<li>Prompts the user to enter a first and a second number (<code>user_value_1</code> and <code>user_value_2</code>)</li>
+<li>Start with the assumption that <code>user_value_1</code> is the greatest</li>
+<li>Compare <code>user_value_1</code> and <code>user_value_2</code> <em>as strings</em>:
+<ul>
+<li>If <code>user_value_1</code> is larger, keep that as the largest</li>
+<li>If <code>user_value_2</code> is larger, update <code>greatest_value</code> to <code>user_value_2</code></li>
+</ul></li>
+<li>Finally, print the greater number</li>
+</ul></li>
+<li>Run <code>choose_greatest</code>:
+<ul>
+<li>The script finally calls <code>choose_greatest</code>, thus prompting the user for input and then displaying the largest number based on string comparison</li>
+</ul></li>
+</ul>
+<p>Let's give a quick summary, just to simplify:</p>
+<ul>
+<li><code>decode_secret</code> is defined, it decodes <code>bezos_cc_secret</code></li>
+<li><code>choose_greatest</code> is defined to find and print the larger of two numbers entered by the user (us) is defined -</li>
+<li><strong>HOWEVER</strong>... only <code>choose_greatest</code> is called</li>
+</ul>
+<h2 id="the-solution"><a href="#the-solution" class="anchor">#</a>The solution</h2>
+<p>So, the code already gives us our solution, but it isn't called. Instead, only <code>choose_greatest</code> is called. Why is this?</p>
+<p>Simple, it's a <strong>red herring</strong>:</p>
+<blockquote>
+<p>Something that misleads or distracts from a relevant or important question</p>
+</blockquote>
+<p>So, all we have to do is edit the python file to call <code>decode_secret</code>!</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode py"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Hiding this really important number in an obscure piece of code is brilliant!</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="co"># AND it&#39;s encrypted!</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="co"># This want our biggest client to know his information is safe with us.</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>bezos_cc_secret <span class="op">=</span> <span class="st">&quot;A:4@r</span><span class="sc">%u</span><span class="st">L`M-^M0c0AbcM-MFE0g4dd`_cgN&quot;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="co"># Reference alphabet</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>alphabet <span class="op">=</span> <span class="st">&quot;!</span><span class="ch">\&quot;</span><span class="st">#$%&amp;&#39;()*+,-./0123456789:;&lt;=&gt;?@ABCDEFGHIJKLMNOPQRSTUVWXYZ&quot;</span><span class="op">+</span> <span class="op">\</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>            <span class="st">&quot;[</span><span class="ch">\\</span><span class="st">]^_`abcdefghijklmnopqrstuvwxyz{|}~&quot;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> decode_secret(secret):</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>    <span class="co">&quot;&quot;&quot;ROT47 decode</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a><span class="co">    </span><span class="al">NOTE</span><span class="co">: encode and decode are the same operation in the ROT cipher family.</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a><span class="co">    &quot;&quot;&quot;</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Encryption key</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>    rotate_const <span class="op">=</span> <span class="dv">47</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Storage for decoded secret</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>    decoded <span class="op">=</span> <span class="st">&quot;&quot;</span></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>    <span class="co"># decode loop</span></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> c <span class="kw">in</span> secret:</span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>        index <span class="op">=</span> alphabet.find(c)</span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>        original_index <span class="op">=</span> (index <span class="op">+</span> rotate_const) <span class="op">%</span> <span class="bu">len</span>(alphabet)</span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>        decoded <span class="op">=</span> decoded <span class="op">+</span> alphabet[original_index]</span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(decoded)</span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> choose_greatest():</span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>    <span class="co">&quot;&quot;&quot;Echo the largest of the two numbers given by the user to the program</span></span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a><span class="co">    Warning: this function was written quickly and needs proper error handling</span></span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a><span class="co">    &quot;&quot;&quot;</span></span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a>    user_value_1 <span class="op">=</span> <span class="bu">input</span>(<span class="st">&quot;What&#39;s your first number? &quot;</span>)</span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a>    user_value_2 <span class="op">=</span> <span class="bu">input</span>(<span class="st">&quot;What&#39;s your second number? &quot;</span>)</span>
+<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a>    greatest_value <span class="op">=</span> user_value_1 <span class="co"># need a value to return if 1 &amp; 2 are equal</span></span>
+<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> user_value_1 <span class="op">&gt;</span> user_value_2:</span>
+<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a>        greatest_value <span class="op">=</span> user_value_1</span>
+<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a>    <span class="cf">elif</span> user_value_1 <span class="op">&lt;</span> user_value_2:</span>
+<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a>        greatest_value <span class="op">=</span> user_value_2</span>
+<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-49"><a href="#cb2-49" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>( <span class="st">&quot;The number with largest positive magnitude is &quot;</span></span>
+<span id="cb2-50"><a href="#cb2-50" aria-hidden="true" tabindex="-1"></a>        <span class="op">+</span> <span class="bu">str</span>(greatest_value) )</span>
+<span id="cb2-51"><a href="#cb2-51" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-52"><a href="#cb2-52" aria-hidden="true" tabindex="-1"></a>decode_secret(bezos_cc_secret) <span class="co">### WHAT WE ADDED.</span></span>
+<span id="cb2-53"><a href="#cb2-53" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-54"><a href="#cb2-54" aria-hidden="true" tabindex="-1"></a>choose_greatest()</span></code></pre></div>
+<p>flag: <code>picoCTF{1|\/|_4_p34|\|ut_8c551048}</code></p>
+
+    </div>
+
+    <nav class="post-nav" aria-label="more posts">
+        <a class="prev" href="/posts/picoctf-packer/" rel="prev"><span class="post-nav-label">‹ older</span>PicoCTF: Packer</a>
+        <a class="next" href="/posts/picoctf-shop/" rel="next"><span class="post-nav-label">newer ›</span>picoCTF: Shop</a>
+    </nav>
+</article>
+
+<aside class="post-aside" aria-label="on this page">
+    <ul class="aside-actions">
+        <li><a href="/posts/picoctf-packer/" title="older: PicoCTF: Packer" aria-label="older post">‹</a></li>
+        <li><a href="/posts/picoctf-shop/" title="newer: picoCTF: Shop" aria-label="newer post">›</a></li>
+        <li><a href="#top" class="to-top" title="back to top" aria-label="back to top">↑</a></li>
+    </ul>
+    <nav class="toc toc-side" aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#understanding-crackmepy">Understanding crackme.py</a></li><li class="toc-h2"><a href="#the-solution">The solution</a></li></ol></nav>
+</aside>
+
+        </main>
+        <footer class="site-footer">
+    <span class="footer-left">
+        <span>&copy; 2024–2026 river</span>
+        <button type="button" class="contact-button" aria-controls="toast" data-label="email" data-value="Y29udGFjdEByaXZlcnMuc2g=">email</button><button type="button" class="contact-button" aria-controls="toast" data-label="signal" data-value="cml2LjEzMzc=">signal</button><button type="button" class="contact-button" aria-controls="toast" data-label="pgp" data-value="QzREQiAxMjc3IDJCQjUgNDY1NyBFQjM3IDQxODQgOEE3QSAwOTQyIDFEQjQgODE4Mg==">pgp</button>
+    </span>
+    <span class="footer-links">
+        <a href="/atom.xml">atom</a>
+        <button type="button" class="scheme-toggle" title="switch colour scheme">scheme: <span class="scheme-name">river</span></button>
+    </span>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</footer>
+
+    </div>
+    <script src="/js/main.js" defer></script>
+    
+    
+    <script>
+    // oneko chases the cursor, so skip it on touch screens
+    (function () {
+      if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+      var s = document.createElement("script");
+      s.src = "/js/oneko.js";
+      document.body.appendChild(s);
+    })();
+    </script>
+    
+</body>
+</html>

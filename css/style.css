@@ -1,0 +1,802 @@
+/* rivers.sh: Hakyll theme, after cactus-2.
+ *
+ * Colours live in the scheme blocks below; everything else reads the
+ * variables, so a new scheme is one more block (and a name under `schemes`
+ * in site.yaml).
+ */
+
+@font-face {
+  font-family: "Meslo LG";
+  src: local("Meslo LG S"), url("/fonts/MesloLGS-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Meslo LG";
+  src: local("Meslo LG S Bold"), url("/fonts/MesloLGS-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Meslo LG";
+  src: local("Meslo LG S Italic"), url("/fonts/MesloLGS-Italic.ttf") format("truetype");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* ---------------------------------------------------------------- schemes */
+
+/* The art was painted onto a flat #1c2021. A scheme with a darker --bg sets
+   --art-shift to the difference between the two (per channel): it's blended
+   over the art with `difference`, which lands the art's flat area exactly on
+   --bg. A lighter background can't be reached this way.
+
+   river: gruvbox. Its background is the art's, so --art-shift is black. */
+:root,
+:root[data-scheme="river"] {
+  --bg: #1c2021;
+  --bg-rgb: 28 32 33;
+  --bg-code: #212627;
+  --border: #7c6f64;
+  --scrollbar: #928374;
+  --text: #d5c4a1;
+  --meta: #928374;
+  --link: #fabd2f;
+  --accent-1: #8ec07c;
+  --accent-2: #d79921;
+  --accent-3: #b8bb26;
+  --quote: #b8bb26;
+  --art-shift: #000;
+
+  --hl-keyword: #fb4934;
+  --hl-type: #fabd2f;
+  --hl-string: #b8bb26;
+  --hl-number: #d3869b;
+  --hl-comment: #928374;
+  --hl-function: #8ec07c;
+  --hl-builtin: #fe8019;
+  --hl-variable: #83a598;
+  --hl-preproc: #8ec07c;
+  --hl-error: #fb4934;
+
+  color-scheme: dark;
+}
+
+/* ------------------------------------------------------------------- base */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
+
+* { scrollbar-color: var(--scrollbar) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background-color: var(--scrollbar); border-radius: 6px; }
+
+/* The background sits on <html> only: the art layer below is z-index -1, and
+   a background on <body> would paint over it. */
+html {
+  background: var(--bg);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scroll-padding-top: 1.5rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+}
+
+body {
+  margin: 0;
+  color: var(--text);
+  font: 400 14px/1.725 "Menlo", "Meslo LG", ui-monospace, monospace;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-wrap: break-word;
+}
+
+::selection { background: var(--accent-1); color: var(--bg); }
+
+a { color: inherit; text-decoration: none; }
+
+:focus-visible { outline: 1px dashed var(--link); outline-offset: 2px; }
+
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: -3rem;
+  padding: .25rem .5rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+.skip-link:focus { top: 1rem; }
+
+.page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 4rem 2rem 1.5rem;
+}
+
+main { flex: 1; }
+
+/* Underlined links: thin rule in the text colour, thicker in the link colour
+   on hover. */
+.prose a:not(.anchor),
+.item-title,
+.post-meta a,
+.post-nav a,
+.page-sub a,
+.not-found a {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+  text-decoration-color: currentColor;
+}
+.prose a:not(.anchor):hover,
+.item-title:hover,
+.post-meta a:hover,
+.post-nav a:hover,
+.page-sub a:hover,
+.not-found a:hover {
+  text-decoration-color: var(--link);
+  text-decoration-thickness: 2px;
+}
+
+/* ---------------------------------------------------------- art backdrop */
+
+/* --art and --art-pos are set by the inline script in default.html, which
+   also sets [data-art] so none of this applies without art. */
+html[data-art] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-color: #1c2021; /* the flat colour baked into the art */
+  background-image: linear-gradient(var(--art-shift), var(--art-shift)), var(--art);
+  background-repeat: no-repeat;
+  background-position: 0 0, var(--art-pos, right bottom);
+  background-size: 100% 100%, contain;
+  background-blend-mode: difference, normal;
+}
+
+/* Dim the art behind the text column: full strength over the text, easing
+   out to nothing on each side (smoothstep, so there's no visible edge).
+   Tweak the two variables; the stops below just shape the curve. */
+html[data-art] body::after {
+  --scrim-strength: .65;  /* darkness behind the text: 0 = off, 1 = art hidden */
+  --scrim-fade: 7rem;     /* how far past the text it fades out */
+
+  content: "";
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: calc(44rem + 2 * var(--scrim-fade));  /* text column + fade each side */
+  margin-left: calc(-22rem - var(--scrim-fade));
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(to right,
+    rgb(var(--bg-rgb) / 0) 0,
+    rgb(var(--bg-rgb) / calc(var(--scrim-strength) * .028)) calc(var(--scrim-fade) * .1),
+    rgb(var(--bg-rgb) / calc(var(--scrim-strength) * .104)) calc(var(--scrim-fade) * .2),
+    rgb(var(--bg-rgb) / calc(var(--scrim-strength) * .216)) calc(var(--scrim-fade) * .3),
+    rgb(var(--bg-rgb) / calc(var(--scrim-strength) * .352)) calc(var(--scrim-fade) * .4),
+    rgb(var(--bg-rgb) / calc(var(--scrim-strength) * .5)) calc(var(--scrim-fade) * .5),
+    rgb(var(--bg-rgb) / calc(var(--scrim-strength) * .648)) calc(var(--scrim-fade) * .6),
+    rgb(var(--bg-rgb) / calc(var(--scrim-strength) * .784)) calc(var(--scrim-fade) * .7),
+    rgb(var(--bg-rgb) / calc(var(--scrim-strength) * .896)) calc(var(--scrim-fade) * .8),
+    rgb(var(--bg-rgb) / calc(var(--scrim-strength) * .972)) calc(var(--scrim-fade) * .9),
+    rgb(var(--bg-rgb) / var(--scrim-strength)) var(--scrim-fade),
+    rgb(var(--bg-rgb) / var(--scrim-strength)) calc(100% - var(--scrim-fade)),
+    rgb(var(--bg-rgb) / calc(var(--scrim-strength) * .972)) calc(100% - var(--scrim-fade) * .9),
+    rgb(var(--bg-rgb) / calc(var(--scrim-strength) * .896)) calc(100% - var(--scrim-fade) * .8),
+    rgb(var(--bg-rgb) / calc(var(--scrim-strength) * .784)) calc(100% - var(--scrim-fade) * .7),
+    rgb(var(--bg-rgb) / calc(var(--scrim-strength) * .648)) calc(100% - var(--scrim-fade) * .6),
+    rgb(var(--bg-rgb) / calc(var(--scrim-strength) * .5)) calc(100% - var(--scrim-fade) * .5),
+    rgb(var(--bg-rgb) / calc(var(--scrim-strength) * .352)) calc(100% - var(--scrim-fade) * .4),
+    rgb(var(--bg-rgb) / calc(var(--scrim-strength) * .216)) calc(100% - var(--scrim-fade) * .3),
+    rgb(var(--bg-rgb) / calc(var(--scrim-strength) * .104)) calc(100% - var(--scrim-fade) * .2),
+    rgb(var(--bg-rgb) / calc(var(--scrim-strength) * .028)) calc(100% - var(--scrim-fade) * .1),
+    rgb(var(--bg-rgb) / 0) 100%);
+}
+
+/* Posts also have a sidebar fixed to the right edge, right where the art
+   sits. Dim behind it too, lightly: only the bright bits are a problem. */
+@media (min-width: 1280px) {
+  html[data-art]:has(.toc-side:not([hidden]))::after {
+    content: "";
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 29.5rem;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(to left,
+      rgb(var(--bg-rgb) / .35) 0,
+      rgb(var(--bg-rgb) / .35) 21.5rem,
+      rgb(var(--bg-rgb) / .3402) 22.3rem,
+      rgb(var(--bg-rgb) / .3136) 23.1rem,
+      rgb(var(--bg-rgb) / .2744) 23.9rem,
+      rgb(var(--bg-rgb) / .2268) 24.7rem,
+      rgb(var(--bg-rgb) / .175) 25.5rem,
+      rgb(var(--bg-rgb) / .1232) 26.3rem,
+      rgb(var(--bg-rgb) / .0756) 27.1rem,
+      rgb(var(--bg-rgb) / .0364) 27.9rem,
+      rgb(var(--bg-rgb) / .0098) 28.7rem,
+      rgb(var(--bg-rgb) / 0) 29.5rem);
+  }
+}
+
+@media (max-width: 768px) {
+  html[data-art] body::before,
+  html[data-art] body::after { display: none; }
+}
+
+/* ----------------------------------------------------------------- header */
+
+.site-header { margin-bottom: 2.5rem; }
+
+.site-title {
+  display: inline-block;
+  color: var(--text);
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 2rem;
+  letter-spacing: .01em;
+}
+
+.site-nav ul {
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: .25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: .8rem;
+  line-height: 15px;
+}
+
+.site-nav li + li { border-left: 1px dotted var(--accent-1); }
+.site-nav a { display: inline-block; padding: 0 15px; color: var(--accent-1); }
+.site-nav li:first-child a { padding-left: 0; }
+.site-nav a:hover,
+.site-nav a[aria-current] {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+/* ----------------------------------------------------------------- footer */
+
+.site-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: .5rem 1.5rem;
+  margin-top: 4rem;
+  color: var(--meta);
+  font-size: 12px;
+}
+
+.footer-left,
+.footer-links { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; }
+.footer-links a:hover,
+.scheme-toggle:hover { color: var(--text); }
+
+.scheme-toggle {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Contact buttons: the site's link colour, underlined, so they read as
+   something to click next to the grey footer links. */
+.contact-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.contact-button:hover,
+.contact-button.open { color: var(--text); }
+
+/* The popup a contact button opens: bottom of the screen, clear of the
+   footer so it doesn't cover the buttons. */
+.toast {
+  position: fixed;
+  /* Centred with auto margins rather than left: 50% + translate, which only
+     gives it half the screen to size itself in and squashes it on phones. */
+  left: 0;
+  right: 0;
+  bottom: 4rem;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  width: fit-content;
+  max-width: calc(100vw - 2rem);
+  margin: 0 auto;
+  padding: .45rem .6rem .45rem 1rem;
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / .45);
+  color: var(--text);
+  font-size: 13px;
+  animation: toast-in .15s ease-out;
+}
+.toast-label { flex-shrink: 0; color: var(--accent-1); }
+.toast-label::after { content: ":"; color: var(--meta); }
+.toast-value { color: var(--link); overflow-wrap: anywhere; user-select: all; }
+.toast button {
+  flex-shrink: 0;
+  padding: 0 .5rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: none;
+  color: var(--meta);
+  font: inherit;
+  cursor: pointer;
+}
+.toast button:hover { border-color: var(--link); color: var(--link); }
+.toast .toast-close { padding: 0 .2rem; border: 0; font-size: 1.1em; line-height: 1; }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(.5rem); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+}
+
+/* ------------------------------------------------------------------- home */
+
+.bio p { margin: 0; font-style: italic; }
+
+.section-title,
+.page-title {
+  margin: 2rem 0 .75rem;
+  color: var(--accent-1);
+  font-size: 1.5em;
+  font-weight: 700;
+  letter-spacing: .01em;
+  line-height: 1.3;
+}
+
+.section-title a:hover {
+  text-decoration: underline;
+  text-underline-offset: 6px;
+}
+
+/* More room between the home page's sections than above the first one. */
+.home-section + .home-section { margin-top: 3.0rem; }
+
+.page-title { margin-top: 0; margin-bottom: .25rem; }
+.page-kind { color: var(--meta); font-weight: 400; }
+.page-sub { margin: 0 0 1.5rem; color: var(--meta); }
+
+/* Date and title on one line, in fixed columns so every list lines up.
+   Stacked on phones. */
+.post-list { margin: 0; padding: 0; list-style: none; }
+
+.post-list li {
+  display: grid;
+  grid-template-columns: 122px 1fr;
+  align-items: baseline;
+  margin-bottom: .8rem;
+}
+
+.post-list time { color: var(--meta); text-transform: lowercase; white-space: nowrap; }
+.item-title { font-weight: 700; }
+.item-desc { display: block; color: var(--meta); line-height: 1.5; margin-top: .15rem; }
+.compact .item-desc { display: none; }
+.kind { margin-left: .5em; color: var(--meta); font-size: .8em; }
+.ext { margin-left: .4em; color: var(--meta); font-size: .85em; }
+
+@media (max-width: 540px) {
+  .post-list li { display: block; margin-bottom: 1.25rem; }
+  .post-list time { display: block; }
+}
+
+/* ---------------------------------------------------------------- archive */
+
+.year {
+  margin: 2rem 0 .75rem;
+  color: var(--accent-2);
+  font-size: 1rem;
+}
+
+.tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .35rem 1.1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  line-height: 1.6;
+}
+.tag-cloud a { color: var(--text); }
+.tag-cloud a:hover { color: var(--link); }
+.tag-cloud sup { margin-left: .2em; color: var(--meta); font-size: .7rem; }
+
+/* Categories drawn like `tree`; the branch prefixes come from site.hs. */
+.tree { margin: 0; padding: 0; list-style: none; }
+.tree li { white-space: nowrap; }
+.tree .tree-root { margin-top: .75rem; }
+.tree .tree-root:first-child { margin-top: 0; }
+.tree .tree-root > a { color: var(--accent-2); font-weight: 700; }
+.tree .branch { color: var(--border); white-space: pre; }
+.tree a:hover { color: var(--link); }
+.tree .count { color: var(--meta); }
+.tree .count::before { content: "("; }
+.tree .count::after { content: ")"; }
+
+/* ----------------------------------------------------------------- search */
+
+.search-form {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  margin: 1rem 0 .5rem;
+  padding: .45rem .75rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgb(var(--bg-rgb) / .75);
+}
+.search-form:focus-within { border-color: var(--accent-1); }
+.search-prompt { color: var(--accent-1); white-space: nowrap; }
+.search-prompt::before { content: "$ "; color: var(--meta); }
+
+.search-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+}
+.search-form input::placeholder { color: var(--meta); opacity: .7; }
+.search-form input::-webkit-search-cancel-button { display: none; }
+
+.search-results mark {
+  background: none;
+  color: var(--link);
+  font-weight: 700;
+}
+
+/* ------------------------------------------------------------------- post */
+
+.post-title {
+  margin: 0;
+  color: var(--accent-1);
+  font-size: 1.5em;
+  line-height: 1.25;
+}
+
+.post-meta {
+  margin: .25rem 0 1rem;
+  color: var(--accent-3);
+  font-size: .85rem;
+}
+.post-meta > * + *::before {
+  content: "|";
+  margin: 0 .6em;
+  color: var(--meta);
+}
+.post-meta time { text-transform: lowercase; }
+.post-tags a { margin-right: .35em; white-space: nowrap; }
+.post-tags a:last-child { margin-right: 0; }
+
+.post-description { margin: 0 0 1.5rem; }
+
+.post-nav {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-top: 3rem;
+  padding-top: 1.25rem;
+  border-top: 1px dotted var(--border);
+}
+.post-nav a { font-weight: 700; }
+.post-nav .next { grid-column: 2; text-align: right; }
+.post-nav-label {
+  display: block;
+  color: var(--meta);
+  font-weight: 400;
+  font-size: .85em;
+  text-decoration: none;
+}
+
+/* Contents: inline (collapsed) on narrow screens, a fixed sidebar on wide. */
+.toc ol { margin: 0; padding: 0; list-style: none; }
+.toc a { color: var(--meta); }
+.toc a:hover,
+.toc a.active { color: var(--link); }
+.toc .toc-h2 > a { color: var(--text); }
+.toc .toc-h2 > a::before { content: "# "; color: var(--accent-1); }
+.toc .toc-h2 > a:hover,
+.toc .toc-h2 > a.active { color: var(--link); }
+
+.toc-inline {
+  margin: 0 0 1.5rem;
+  padding: .4rem .9rem;
+  border: 1px dotted var(--border);
+  border-radius: 4px;
+}
+.toc-inline summary { color: var(--accent-1); cursor: pointer; }
+.toc-inline[open] summary { margin-bottom: .4rem; }
+.toc-inline .toc-h3 { padding-left: 2ch; font-size: .9em; }
+
+.post-aside { display: none; }
+
+@media (min-width: 1280px) {
+  .toc-inline { display: none; }
+
+  .post-aside {
+    display: block;
+    position: fixed;
+    top: 2rem;
+    right: 2rem;
+    width: 17.5rem;
+    max-height: calc(100vh - 4rem);
+    overflow-y: auto;
+    text-align: right;
+    font-size: .85rem;
+    scrollbar-width: thin;
+  }
+
+  .aside-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1.1rem;
+    margin: 0 0 1.25rem;
+    padding: 0;
+    list-style: none;
+    font-size: 1.15rem;
+  }
+  .aside-actions a { color: var(--text); }
+  .aside-actions a:hover { color: var(--link); }
+
+  .toc-side li { margin-bottom: .2rem; line-height: 1.45; }
+  .toc-side .toc-h2 { margin-top: .5rem; }
+  .toc-side .toc-h3 { font-size: .9em; }
+}
+
+/* ------------------------------------------------------------------ prose */
+
+.prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
+  position: relative;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.prose h1 { margin: 3rem 0 1rem; color: var(--accent-1); font-size: 1.5em; }
+.prose h2 { margin: 2.25rem 0 .5rem; color: var(--accent-2); font-size: 1.1rem; }
+.prose h3 {
+  margin: 1.25rem 0 .5rem;
+  color: var(--accent-2);
+  font-size: .95rem;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.prose h4, .prose h5, .prose h6 { margin: 1rem 0 .5rem; color: var(--accent-3); font-size: .9rem; }
+
+/* The "#" links in front of headings hang in the left margin. */
+.prose .anchor {
+  position: absolute;
+  left: -1.1em;
+  width: 1.1em;
+  color: var(--accent-1);
+  text-decoration: none;
+}
+.prose h3 .anchor { opacity: 0; color: var(--meta); }
+.prose h3:hover .anchor,
+.prose h3 .anchor:focus-visible { opacity: 1; }
+
+.prose p, .prose ul, .prose ol, .prose dl { margin: 0 0 1rem; }
+.prose ul, .prose ol { padding-left: 1.5rem; }
+.prose li > ul, .prose li > ol { margin-bottom: 0; }
+.prose li::marker { color: var(--meta); }
+.prose strong { color: var(--text); }
+
+.prose img, .prose video {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1rem auto;
+  border-radius: 2px;
+}
+
+.prose figure { margin: 1rem 0; }
+.prose figcaption { color: var(--meta); font-size: .9em; text-align: center; }
+
+.prose blockquote {
+  margin: 1rem 10px;
+  padding: .5em 10px;
+  color: var(--quote);
+  font-weight: 700;
+}
+.prose blockquote::before {
+  content: "\201C";
+  margin-right: .25em;
+  font-size: 2em;
+  line-height: .1em;
+  vertical-align: -.4em;
+}
+.prose blockquote p { margin: 0; }
+.prose blockquote p:first-child { display: inline; }
+
+.prose hr {
+  margin: 2rem 0;
+  border: 0;
+  border-top: 1px dashed var(--accent-3);
+  opacity: .5;
+}
+
+.prose table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 1rem 0;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.prose th {
+  padding: 6px 8px;
+  border-bottom: 1px dashed var(--border);
+  color: var(--accent-2);
+  text-align: left;
+}
+.prose td { padding: 2px 8px; vertical-align: top; }
+
+.prose .footnotes { margin-top: 3rem; color: var(--meta); font-size: .9em; }
+
+/* ------------------------------------------------------------------- code */
+
+code, pre, kbd, samp { font-family: "Menlo", "Meslo LG", ui-monospace, monospace; }
+
+:not(pre) > code {
+  padding: 0 5px;
+  border: 1px dotted var(--border);
+  border-radius: 2px;
+}
+
+pre {
+  margin: 0;
+  padding: 10px 15px;
+  overflow-x: auto;
+  background: var(--bg-code);
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 22px;
+  tab-size: 4;
+}
+pre code { display: block; padding: 0; border: 0; }
+
+/* Pandoc's per-line anchors in highlighted code are empty links; keep them
+   out of the way. */
+pre code > span > a:first-child:empty { display: none; }
+
+/* main.js wraps each block so the language label and copy button stay put
+   while the code scrolls sideways. */
+.code-block,
+.prose > pre,
+.prose div.sourceCode { position: relative; margin: 1rem 0; }
+.code-block div.sourceCode { margin: 0; }
+
+.code-tools {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  font-size: 11px;
+  line-height: 18px;
+  opacity: 0;
+  transition: opacity .15s ease-in;
+}
+.code-block:hover .code-tools,
+.code-tools:focus-within { opacity: 1; }
+.code-lang { color: var(--meta); }
+
+.code-copy {
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-code);
+  color: var(--meta);
+  font: inherit;
+  cursor: pointer;
+}
+.code-copy:hover { border-color: var(--link); color: var(--link); }
+.code-copy.copied { border-color: var(--accent-1); color: var(--accent-1); }
+
+@media (hover: none) {
+  .code-tools { opacity: 1; }
+  .code-lang { display: none; }
+}
+
+/* ----------------------------------------------------------- locked posts */
+
+.post-locked { color: var(--link); }
+
+.prose:focus { outline: none; }
+
+.unlock {
+  margin: 1.5rem 0;
+  padding: 10px 15px;
+  background: var(--bg-code);
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 22px;
+}
+.unlock p { margin: 0; }
+.unlock .prompt { color: var(--accent-1); }
+.unlock-line { display: flex; flex-wrap: wrap; column-gap: 1ch; }
+
+.unlock input {
+  flex: 1;
+  min-width: 8ch;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  caret-color: var(--accent-1);
+}
+
+.unlock-status { min-height: 22px; color: var(--link); }
+.prose > .unlock-status { margin-bottom: 1rem; color: var(--meta); }
+
+.unlock-button {
+  margin-top: .5rem;
+  padding: 0 .6rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.unlock-button:hover { border-color: var(--link); color: var(--link); }
+
+/* ------------------------------------------------------------------- misc */
+
+.term {
+  margin: 1.5rem 0;
+  color: var(--text);
+}
+.term .prompt { color: var(--accent-1); }
+.term .missing-path { color: var(--link); }
+
+@media (max-width: 480px) {
+  .page { padding: 2rem 1rem 1.25rem; }
+  .site-header { margin-bottom: 2rem; }
+  .prose blockquote { margin: 1rem 0; }
+  .post-nav { grid-template-columns: 1fr; gap: 1rem; }
+  .post-nav .next { grid-column: 1; }
+}
+
+@media print {
+  html[data-art] body::before,
+  html[data-art] body::after,
+  .post-aside, .toc, .post-nav, .site-nav, .code-tools { display: none !important; }
+}

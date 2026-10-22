@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en" data-scheme="river" data-schemes="river">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>untitled03 · river</title>
+    <meta name="description" content="ctf&#39;s, cybersecurity, hackthebox, philosophy, everything">
+    <meta name="author" content="river">
+    <link rel="canonical" href="https://rivers.sh/posts/untitled03/">
+    <meta property="og:site_name" content="river">
+    <meta property="og:title" content="untitled03">
+    <meta property="og:description" content="ctf&#39;s, cybersecurity, hackthebox, philosophy, everything">
+    <meta property="og:url" content="https://rivers.sh/posts/untitled03/">
+    <meta property="og:type" content="article">
+    <meta property="og:image" content="https://rivers.sh/images/og.jpg">
+    <meta name="twitter:card" content="summary">
+    <link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+    <link rel="alternate" type="application/atom+xml" title="river" href="/atom.xml">
+    <link rel="preload" href="/fonts/MesloLGS-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/syntax.css">
+    <script>
+    // Runs before first paint: restore the visitor's colour scheme and pick the
+    // background art, so neither flashes in after load.
+    (function () {
+      var d = document.documentElement;
+      try {
+        var s = localStorage.getItem("scheme");
+        if (s && d.getAttribute("data-schemes").split(" ").indexOf(s) !== -1) d.setAttribute("data-scheme", s);
+      } catch (e) {}
+      var art = ["/images/art/art1.jpg"];
+      if (!art.length) return;
+      var i = Math.floor(Math.random() * art.length);
+      try {
+        // don't show the same art twice in a row
+        var last = parseInt(localStorage.getItem("art-last"), 10);
+        if (art.length > 1 && i === last) i = (i + 1 + Math.floor(Math.random() * (art.length - 1))) % art.length;
+        localStorage.setItem("art-last", i);
+      } catch (e) {}
+      var a = typeof art[i] === "string" ? { src: art[i] } : art[i];
+      d.style.setProperty("--art", 'url("' + a.src + '")');
+      d.style.setProperty("--art-pos", a.position || "right bottom");
+      d.setAttribute("data-art", "");
+    })();
+    </script>
+</head>
+<body class="is-post">
+    <a class="skip-link" href="#main">skip to content</a>
+    <div class="page">
+        <header class="site-header">
+    <a class="site-title" href="/">river</a>
+    <nav class="site-nav" aria-label="site">
+        <ul><li><a href="/">home</a></li><li><a href="/blog/">blog</a></li><li><a href="/categories/">categories</a></li><li><a href="/tags/">tags</a></li><li><a href="/search/">search</a></li></ul>
+    </nav>
+</header>
+
+        <main id="main">
+<article class="post h-entry">
+    <header class="post-header">
+        <h1 class="post-title p-name">untitled03</h1>
+        <!-- no whitespace between items: the "|" separators supply the spacing -->
+        <div class="post-meta"><time class="dt-published" datetime="2026-07-18">Jul 18, 2026</time><span class="post-locked">locked</span><span class="post-cats"><a href="/categories/blog/">Blog</a></span></div>
+        
+    </header>
+
+    
+    <details class="toc toc-inline" hidden>
+        <summary>contents</summary>
+        <nav aria-label="contents" data-toc></nav>
+    </details>
+    
+
+    <div class="prose e-content" tabindex="-1">
+
+        <form class="unlock" id="unlock">
+            <p><span class="prompt">$</span> sudo cat untitled03.md</p>
+            <p class="unlock-line">
+                <label for="unlock-password">[sudo] password for guest:</label>
+                <input type="password" id="unlock-password" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+            </p>
+            <p class="unlock-status" id="unlock-status" role="status" aria-live="polite"></p>
+            <button type="submit" class="unlock-button">unlock</button>
+        </form>
+        <noscript><p>this post is encrypted, and unlocking it needs javascript.</p></noscript>
+        <script type="application/json" id="locked-payload">{"data":"9Ttka3Das+BGM0YLf8Zat/pvEeHfWy/VhRVLV7zpOlykqH/ZgxVt+LlNGr0ovBR1XCra2QKW7huee5OMvQ9wMPGBdt4bAXtTXTH3f+5iriJpNk7GuEbnJgIY24+tIiZ9fMZ2oyvC5qa1JEqDWemuzBpfZcMJMJsFL6U4Ehfwfhmt3XxuD4C8tUriP2jpjWEb0mp/NtLG+V6joLcAdzrZGpz2bGFpH+jiVTV38M1eY/pFFwsrUUI87u8B8MhOrpxfbFHUE1XzizbmHzhbpHSb6MWd1eyelouSDl4QypTnQNYttOgxZ/PL1sG85PtxSsjIsB1qbnStKozzdvRkqNnEgrqT7JoCDq+lj/b4IEQitlRQQ29rge6aplV44b9+D3/OY2nQ74Wu6/NEllHgg/Pv3x8RLkqbwxHgjX9m5zmRMf+m+ehAyb69soJcxTu3QS8IpYCxOnlFtZxWSbb+MjX0bb9psEMYO6kkV1bZq+8CuJQFKoXLJZZYlykIeaB18dxdJ9Ax0OmtZRlzlLPx57TwbV3TskCAPYi1rvAZ/l0UUm3/seeWagxRMkOKPLV0kjHdB0ZPoCLQ9gsMh2+2xQ3CB0IpQD3Ccfz6INPKMXozqe6Pr4XRYowVPyMh3CFwKeSh2KFuZtLsZJuknjXIzewB557x+19brtVJi0YkizftO5On7JHNw9v0qcG1R4Cl3J6h19SbVQEOVLBMVOVOsY8MR5fzZYTkrYGcmyJOn+Uq/yPshn0JEJYtPdQSmc4jaSEMh3upeuxKLooK66yL4xIBe2W/MduLdfar+/QmQPKp5aOpCUtw/xsGPK0+23FhwrDq2EwOG4LyfivVBe4UXzVC0zk9Sei4w0VrL0A9g66vcuGUyLxbQ7NxSMbljG4btiEfLIjaHsbarfNFSWw3d3hxGM4QhKcGX9QNmtfapLw94bER7FjgXvq3Rxiddk0sn5IaHMd9NzpiVtHwdOKl2HW24jXzMzdy4Ohu8JRbv5JhXYh92OXPsqBIfmtEFxNQqgOmmSzFpXZzOFwbAKvbL5hCasF9dyXeFUOCgZfo4PiL4lYyItAb9GmSUqjCTrBXooOowzMWctmaJvohRxciKNnPUGFThMF2juhZatmHbjfjbMSVx2Jd0Kld66VTvGs+mAbFTPnJE3Gs0CxrKkh6uT2jI+qubVJRr6Sylkv1mDuM+1wy6sJb3trUONFKHN0tZ81mHFI5ssqowW7ysM0tcdFO0ldC0SE10kVe6X8y8Q+Acl+B9sQt1N5F9KMozQhZen6UyW/wiAeClp5+qt359vBcN1E+wcsTxRXRzAId1OT6iMc2AShp+c3OjN3ojFJ5FVgL8dElKnNKVlX8PdP8r96wYN/d2SlitJwk56erQSXQmgAX98riQjhLXYrjns5v+gw7eVEs4GLeCwqIrz0rkYYAparLAXv9l8q2ysQm8BIUqPxLzH49mYv6utogOYSfY8n8v24qRWgK1jw1lsqlvxULPGIv9TLvvWwqBRdok/pLMGOY6wZVr0GAMCHhko5EhXJkL3ywxoWDftXF2ypYOexXetbV1aPJQOKv2qfvcMsl39fw0e4jYz90J+77s8eQOjtw3ZBGcIWzIEk/y68eXLej7oWSgYi5gnUBJJTYVcghWghvESY/c4Rtv8NRGY1zqCE5nJdssJzq+51gWvNbgH3IVr0BwpHsSiRFeY5C0Y7IuwxUv8SyzrRWYjWq1ebKfESupc2M6aXZmKsecc7/O/jakwrybSdGxzk1uCweUDSC4yCqE7tK/fXukyQpdu9rcWdM2OEh+KSIp/e+8fp0ZFxUtFiNsqQhJYTh8/bJOtuTUM8wkNqOIW58gw9d9LYQMIt8aFV7ymHFpBP7tRjyEVGvIPyWAHrZ7jNqo+wGh1P2QAqjX8BTeBymLo7T6WWc2BqElS6RygKrG274LpC610Lytb6xRZYfGVkPa4Lxpqm3eOYmVFKrIakwMJj0Bl3+/4RiJlLQoRpcb7xl/LV6hh/zMt6e+/aBeWSeXG5SxfxaaXTeWzz6sd05yLindSiCAISwzT8Y+gwMUn1ItG3ZHa6PPqnR29C4m2prDNp/yj9Y4ndkoU8Aa1aEZZ1m5P9pp4iamT1reIdLNW7TeFxauL0d0U+4Esb1lRPtVpImHbGQ4DUEq/EeN6RAqu1EBTbrtcdaHBwAfAnDFIwbmHG7q1ePxstfxM5X6U9ECWZ4q/JxwYdFMnzJwVSbxJerwqWpvf64TQo5zf9VZV76YfK+d6bj0bUinnYgA8JCqwK2+a1l8mkWYMQMuAv9/RaY9bev6eTZpPqCDRnMDB5nE7oCEUjOSt42HlaNDKijqomzyX7xleuu2rFnNKXcvhSBMo9ymBRMmtqPqII3fZj/RsjUJcvTFgw2es75CCoYDIraLYQfLqiEIAqs5dmLnNgvTwXA6/cl3ZCsa70K3n9bBeff8talrUsszdhdDUJQ6rAm18Ap6vLaGIaHZ3nidnGBLLYgfIexCoHaFwsUCTr1l7SZ0Qxh7Z8+ewUA0H4PivTNSTEBnQSdMuhhHJhUCxuNQuirbS8b0lORdBIq9VeNSIklnnIzF7dnG4d4LCLI7rUaA/Xqw6W+ybn16ucF6JCb3m4IDiFrj0RUGJe7qMkNCH0GQzK3vfjqqO1EdyKrBwIWodYRMUCd8WMtPoLnAMm6k3lnyWgasSZTN5pUv1pT34/fyj1nutZoCrRilbzjfb7UCWg6Ga1eAVmOH0G82HBqUh8tvWaFSQYyxjwumX0Y1yDPCs0NODDNnVhljiXPwQzHKEfYgqg5bnxVsicW2UnsVcKp/4+uZZR71dhZcbIBigpR7kwrZ9YocW271mjHhhNM+oqWJyw/MKFtaYyCrbM3vrylpeg1OIPGJTtivFlbTHDBvbN7O37c8e0STr27KOEHEjraw85SihsmnP6JU6MElLMJpJtBkF0Lr4AsFmdXj815TQc8OSj4jw5epqYDk4uBVbqKSjX7syapZOGdyc+vblUzXlGFAcvaxeOxElDQfBVfk+sTVcZvbFf1hfE0Qa55g8c0+jTQ9M22o6UswsvrfyIUozdAnyJdibXD11ZS5JVS7uo8nSDZpDHzi230GtqCK8QjkUkWK6zpVphOQ0TZja8638+invlT/T0gOP4nqiEV4UdgxWpWtugZCcoNZHZkvAyedULwGrZatLwc07ouRa2Ph9l1TvepllueeaAK4rTd8oLpGOSKRzOnvdEwUa7PfAqreNQHChvYJvsFng9U1zdZuC/xxPs55Fr3QNcQxqeD/yO4a5GxundZm8ecdmOgPRuR+AqbC8s62fcSL3h4aBVzCtT9Cl9Eru+qAUnf6PHnhi6iK5s02OmmTESaMLz8/NXkv7XteT1rHdP2o5jzEpzBJQ9xMKlFr4AqTdG4xosrf8fqLLyH1qgtEgYg87rw0h7vMiE5rZTmpEMtdxMpnh6SNx6C3c3lFi1VMR3JrOq7yRmCGm06Vx1zg5xB9KEjnFTrmEkY1z3FGNnO3pKuPAzcQs/ebE4eH10Y5Ylv2Q4osB6lqWoSVQ2YP+q7n2l9q6USBSVuor69Kqj0au92XBwf8ALrIkPBQuB6y1dQ0nRhlUNCMLuhs3ScFB0Vu2Ie7xicLygBssZwp4g0b7PTGm3MlCQR5pIJ3YqkFkZpTcupWN3OKmklW3Ge/R+NBeJ7y62QHFQykPzE16p1Q6AMxf1YXX1qzZbmosWpqHvCthBOpCJpnNEXymg8k3NufIlQ78o3Br7h0mpYfTW9aBMGxGhQmWOCRS4aNVBHot6ag21OwElWuGaDzAQfGOoUBjFybyjIyeA8jjhm+iQ+IEHBaSmu0adGH1LOEp0tVB1lQ1c065Ay1sCBni8re8WpOCwresQgwc1F/A2WmGFTsQZjs5R5T+9De7hZ5bKoB7ldWq9ILMhuc2qDhOy7kUMB15TEWldcVOIJX4oFvjilFJDx+3G406Jtwb+s69SIvRxCqHu1UhaKnq2v/gD7Zs8C6cATxm58iHVD519iUl65aUSxI1YdtIELaWk7a2y8rnlK66OqD/SBvAD4wzEuiUlmWsb57+K3OfKJLaHGtZXchtXa/tzonSCBmdcgvwD+irkXS6oa+vM4i412emrAgdbmzdsBVBhH7yswHuZ+aOiccdJIE8jskobLyLRbg40AG6B/t5vzr875Ioml/0qL2jzwnR+/yqAN1Dgx3feh7CZgI5jEPX9pvS0N/q+8RZVdyCBHduPQP5PScSCKttOXC5pyQR/1eC54FhCELbV9CIMaFLCLt89Z/fHZta5Aj4U8Semfm+rtyrT8XAw+gkzf8UNcTxD9GW4erwOZBr7opAus60EuF5DcsOdc8kKncYa30M+7PJG2tkm48jIcV2ENXKvsuaw7j9fik68Kcnc6ZALuWirZKfANaV4MesxW8pgINa59O1gV3TYEM4Kh1uvpsmpNONQTUbpf1RqXoC3WN+kuVx97woW4V1BcBcBPP4VXze2rMt8DWfoadPxWHLHwc3DBFRqrSAtHqrYbowtBn1ay5QLRV420J4HBOtvuaCYVc/Z+JM/qze5p/bq8PHKixvn6v81kvsHirYcGVRXwRC/Hw1DIJsS4K2btczL9rck81BN+OcP+GQ8SkZEUd/9lSTFl+BEE8ezDiCc9STrm8AFVfbHl8pYRwg49BNLDwRJEk1S91cW9neGlie4zzGXPGMwTsLvjAC86FIiQaeBsUcyIXMm92I4jKXs6Tx9V7rGnMAPXJNpRyz3pToFnXaj3PV0iKDvV8u2+RKoZo18X2vtyQ7DgsDj9k0Cr66WnOLtn4UQO7ByuBp2JUKnytLuraeYV7/XBZRHfQmNoaS9utY48FgWPIaEscW1+MurlB3zab8g/c+MpeG3D57NmgggyNmxpb3K4c6eEu8YuKrrKMRhweA4qlfCd5HmZ7q4c69/9UinSACvpiS+vZKpw565lG3ZZaRUrcAFFdhSffaCUTwyHO32sd2VYJUeK653FgSDcEcpUpO7eXtp9EAjuTrg4aIGGuuDT90bAMd3kWsMtiDmAcChWn/x0WaO90Ys95u2iZUWbgc0n5a88BvzVADKj224pZFekkRnsLNvT4xme9r25KQNt3CmfrWN26FVvwgGIxJTA0WZ4cft4femz7rSgwK7SOn4GTjhwdwyIcFWSwoq7Xn5dVNgzaZcVB51U2l4gamulQOmczp37Sf4wSGkdbyDKzmtt5AEMOKpVxUnKZWAvKkHxkoxVHeaO1Fotoczy8fn0f49ANBnczpOzbzh5SxaOIfu7yNzfjm6kK5OtxpW44e05uvuCU299RF4dfGxrnSqiiRHxim9+gP52pwvIxn8LSWWu01yBo575n79zxr0pp1pjPwq4ipBRX/uOgBCXvToRRT+/pzTImoNDEtH8H6J+zo4BR7yLoT4nHyjsNwsSUKlPu0gdn0n+HbDX3dFqmhB4kBz2vDpOP3pfZF/dmWrSwP3E+vnyMEF4KutLOwqpLa3O4V87VUqY+mMXbwOSfzldEaaDn0eERgzDuxnZ+aopp+Z2VGoz+TI05YByS3Q6G0yiE3Oixqb4WDxOAc7ViR3NASEbJEWFoKhHEIeE4pfT6AwqjALHuGkId7XhjcBHDefLnRshJLrl8Tpz/vbFf5W5X3zQkZ0new5eGS704Zn6an+BOlXuqL3HoD9TlT93mkIL8VE1l5AhNfywUOsOCp78zaL6D61XF3iNa7gaT1wAmbY3j0eER60JZBS3S0psDqcmHd3bl++5EwYvbLyZi8h40qKBx1E3cUycpdXOqJ3tzxk1VOqacCJjZ3/Xfrd45p8duzcIffsMZXVIJ+PzqgAZNtLyRsbvm/0ZdDC3qBC0tt0ss5Z9GK/JrptOX/0VqR6JetxMNmqol4Cdd2RzlJ6Up1hFJj78V68b7x3dL2mk/YiRBCISGZ6haOCWLlcqITs2q3Qc0A/xr/xYMVY9YoAS5+0fAhFL7Y9aBNNnY0vvT+4PWHQ=","iter":600000,"kdf":"PBKDF2-SHA256","salt":"JgADC3etSgQWFHzxV1akbQ==","v":1}</script>
+
+    </div>
+
+    <nav class="post-nav" aria-label="more posts">
+        <a class="prev" href="/posts/htb-debugginginterface/" rel="prev"><span class="post-nav-label">‹ older</span>HackTheBox: Debugging Interface</a>
+        
+    </nav>
+</article>
+
+<aside class="post-aside" aria-label="on this page">
+    <ul class="aside-actions">
+        <li><a href="/posts/htb-debugginginterface/" title="older: HackTheBox: Debugging Interface" aria-label="older post">‹</a></li>
+        
+        <li><a href="#top" class="to-top" title="back to top" aria-label="back to top">↑</a></li>
+    </ul>
+    <nav class="toc toc-side" aria-label="contents" data-toc hidden></nav>
+</aside>
+
+        </main>
+        <footer class="site-footer">
+    <span class="footer-left">
+        <span>&copy; 2024–2026 river</span>
+        <button type="button" class="contact-button" aria-controls="toast" data-label="email" data-value="Y29udGFjdEByaXZlcnMuc2g=">email</button><button type="button" class="contact-button" aria-controls="toast" data-label="signal" data-value="cml2LjEzMzc=">signal</button><button type="button" class="contact-button" aria-controls="toast" data-label="pgp" data-value="QzREQiAxMjc3IDJCQjUgNDY1NyBFQjM3IDQxODQgOEE3QSAwOTQyIDFEQjQgODE4Mg==">pgp</button>
+    </span>
+    <span class="footer-links">
+        <a href="/atom.xml">atom</a>
+        <button type="button" class="scheme-toggle" title="switch colour scheme">scheme: <span class="scheme-name">river</span></button>
+    </span>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</footer>
+
+    </div>
+    <script src="/js/main.js" defer></script>
+    <script src="/js/unlock.js" defer></script>
+    
+    <script>
+    // oneko chases the cursor, so skip it on touch screens
+    (function () {
+      if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+      var s = document.createElement("script");
+      s.src = "/js/oneko.js";
+      document.body.appendChild(s);
+    })();
+    </script>
+    
+</body>
+</html>

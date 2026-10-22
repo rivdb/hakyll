@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en" data-scheme="river" data-schemes="river">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>N00bzCTF: Sillygoose · river</title>
+    <meta name="description" content="Exploiting a simple number search binary game">
+    <meta name="author" content="river">
+    <link rel="canonical" href="https://rivers.sh/posts/n00bzctf-sillygoose/">
+    <meta property="og:site_name" content="river">
+    <meta property="og:title" content="N00bzCTF: Sillygoose">
+    <meta property="og:description" content="Exploiting a simple number search binary game">
+    <meta property="og:url" content="https://rivers.sh/posts/n00bzctf-sillygoose/">
+    <meta property="og:type" content="article">
+    <meta property="og:image" content="https://rivers.sh/images/og.jpg">
+    <meta name="twitter:card" content="summary">
+    <link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+    <link rel="alternate" type="application/atom+xml" title="river" href="/atom.xml">
+    <link rel="preload" href="/fonts/MesloLGS-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/syntax.css">
+    <script>
+    // Runs before first paint: restore the visitor's colour scheme and pick the
+    // background art, so neither flashes in after load.
+    (function () {
+      var d = document.documentElement;
+      try {
+        var s = localStorage.getItem("scheme");
+        if (s && d.getAttribute("data-schemes").split(" ").indexOf(s) !== -1) d.setAttribute("data-scheme", s);
+      } catch (e) {}
+      var art = ["/images/art/art1.jpg"];
+      if (!art.length) return;
+      var i = Math.floor(Math.random() * art.length);
+      try {
+        // don't show the same art twice in a row
+        var last = parseInt(localStorage.getItem("art-last"), 10);
+        if (art.length > 1 && i === last) i = (i + 1 + Math.floor(Math.random() * (art.length - 1))) % art.length;
+        localStorage.setItem("art-last", i);
+      } catch (e) {}
+      var a = typeof art[i] === "string" ? { src: art[i] } : art[i];
+      d.style.setProperty("--art", 'url("' + a.src + '")');
+      d.style.setProperty("--art-pos", a.position || "right bottom");
+      d.setAttribute("data-art", "");
+    })();
+    </script>
+</head>
+<body class="is-post">
+    <a class="skip-link" href="#main">skip to content</a>
+    <div class="page">
+        <header class="site-header">
+    <a class="site-title" href="/">river</a>
+    <nav class="site-nav" aria-label="site">
+        <ul><li><a href="/">home</a></li><li><a href="/blog/">blog</a></li><li><a href="/categories/">categories</a></li><li><a href="/tags/">tags</a></li><li><a href="/search/">search</a></li></ul>
+    </nav>
+</header>
+
+        <main id="main">
+<article class="post h-entry">
+    <header class="post-header">
+        <h1 class="post-title p-name">N00bzCTF: Sillygoose</h1>
+        <!-- no whitespace between items: the "|" separators supply the spacing -->
+        <div class="post-meta"><time class="dt-published" datetime="2024-08-13">Aug 13, 2024</time><span>2 min read</span><span class="post-cats"><a href="/categories/ctf/">CTF</a> › <a href="/categories/ctf/n00bzctf2024/">N00bzCTF2024</a> › <a href="/categories/ctf/n00bzctf2024/easy/">Easy</a></span><span class="post-tags"><a class="p-category" href="/tags/pwn/">#Pwn</a> <a class="p-category" href="/tags/programming/">#Programming</a> <a class="p-category" href="/tags/binary-search/">#Binary Search</a></span></div>
+        <p class="post-description p-summary">Exploiting a simple number search binary game</p>
+    </header>
+
+    
+    <details class="toc toc-inline">
+        <summary>contents</summary>
+        <nav aria-label="contents"><ol><li class="toc-h2"><a href="#breaking-down-the-challenge">Breaking down the challenge</a></li><li class="toc-h2"><a href="#the-solution">The Solution</a></li></ol></nav>
+    </details>
+    
+
+    <div class="prose e-content" tabindex="-1">
+
+<h1 id="challenge-info">Challenge Info</h1>
+<p><code>There's no way you can guess my favorite number, you silly goose.</code></p>
+<p>attached: <a href="/assets/files/sillygoose/sillygoose.py">sillygoose.py</a></p>
+<p>author: Connor Chang</p>
+<p><img src="/images/sillygoose/sillygoose.png" alt="sillygoose" /></p>
+<h2 id="breaking-down-the-challenge"><a href="#breaking-down-the-challenge" class="anchor">#</a>Breaking down the challenge</h2>
+<p>Upon connecting to the netcat listener, we're prompted to guess a number. Initially, I tried bruteforcing it for a few minutes, because why not? While it is possible for this challenge, it would take forever, so it's better if we analyze the sillygoose.py file that's attached with the challenge.</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode py"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> random <span class="im">import</span> randint</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> time</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>ans <span class="op">=</span> randint(<span class="dv">0</span>, <span class="bu">pow</span>(<span class="dv">10</span>, <span class="dv">100</span>))</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>start_time <span class="op">=</span> <span class="bu">int</span>(time.time())</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>turns <span class="op">=</span> <span class="dv">0</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="cf">while</span> <span class="va">True</span>:</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    turns <span class="op">+=</span> <span class="dv">1</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    inp <span class="op">=</span> <span class="bu">input</span>()</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="bu">int</span>(time.time()) <span class="op">&gt;</span> start_time <span class="op">+</span> <span class="dv">60</span>:</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>       <span class="bu">print</span>(<span class="st">&quot;you ran out of time you silly goose&quot;</span>)</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>       <span class="cf">break</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="st">&quot;q&quot;</span> <span class="kw">in</span> inp:</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">&quot;you are no fun you silly goose&quot;</span>)</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>        <span class="cf">break</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> inp.isdigit():</span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">&quot;give me a number you silly goose&quot;</span>)</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>        <span class="cf">continue</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>    inp <span class="op">=</span> <span class="bu">int</span>(inp)</span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> inp <span class="op">&gt;</span> ans:</span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">&quot;your answer is too large you silly goose&quot;</span>)</span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>    <span class="cf">elif</span> inp <span class="op">&lt;</span> ans:</span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">&quot;your answer is too small you silly goose&quot;</span>)</span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span>:</span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">&quot;congratulations you silly goose&quot;</span>)</span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>        f <span class="op">=</span> <span class="bu">open</span>(<span class="st">&quot;/flag.txt&quot;</span>, <span class="st">&quot;r&quot;</span>)</span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(f.read())</span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> turns <span class="op">&gt;</span> <span class="dv">500</span>:</span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">&quot;you have a skill issue you silly goose&quot;</span>)</span></code></pre></div>
+<p>The rules are simple:</p>
+<ol type="1">
+<li>If the number is too large, we're prompted with <code>"your answer is too large you silly goose"</code></li>
+<li>If the number is too small, we're prompted with <code>"your number is too small you silly goose"</code></li>
+<li>If we run out of time (60 seconds), we're prompted with <code>"you run out of time you silly goose"</code></li>
+<li>If we guess over 500 times, we're prompted with <code>"you have a skill issue you silly goose"</code></li>
+</ol>
+<h2 id="the-solution"><a href="#the-solution" class="anchor">#</a>The Solution</h2>
+<div class="sourceCode" id="cb2"><pre class="sourceCode py"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pwn <span class="im">import</span> <span class="op">*</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> time</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Establish connection</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>p <span class="op">=</span> remote(<span class="st">&#39;24.199.110.35&#39;</span>, <span class="dv">41199</span>)</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> get_response():</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">try</span>:</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>        response <span class="op">=</span> p.recv().decode(<span class="st">&#39;utf-8&#39;</span>).strip()</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="ss">f&quot;Received response: </span><span class="sc">{</span>response<span class="sc">}</span><span class="ss">&quot;</span>)  <span class="co"># Debugging line</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> response</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">except</span> <span class="pp">EOFError</span>:</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">&quot;EOFError encountered&quot;</span>)</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="st">&#39;&#39;</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> send_message(message):</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>    p.sendline(message)</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a><span class="co"># Define the initial search range</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>low <span class="op">=</span> <span class="dv">0</span></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>high <span class="op">=</span> <span class="bu">pow</span>(<span class="dv">10</span>, <span class="dv">100</span>)</span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a><span class="co"># Record starting time</span></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>start_time <span class="op">=</span> time.time()</span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a><span class="co"># Initialize number of guesses (turns) made</span></span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>turns <span class="op">=</span> <span class="dv">0</span></span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a><span class="cf">while</span> time.time() <span class="op">-</span> start_time <span class="op">&lt;</span> <span class="dv">60</span>:</span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> turns <span class="op">&gt;</span> <span class="dv">500</span>:</span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">&quot;Too many turns&quot;</span>)</span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>        <span class="cf">break</span></span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Calculate guess</span></span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>    guess <span class="op">=</span> (low <span class="op">+</span> high) <span class="op">//</span> <span class="dv">2</span></span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a>    send_message(<span class="bu">str</span>(guess))</span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a>    response <span class="op">=</span> get_response()</span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a>    turns <span class="op">+=</span> <span class="dv">1</span></span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f&quot;Guess: </span><span class="sc">{</span>guess<span class="sc">}</span><span class="ss">, Response: </span><span class="sc">{</span>response<span class="sc">}</span><span class="ss">&quot;</span>)  <span class="co"># Debugging line</span></span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="st">&quot;congratulations&quot;</span> <span class="kw">in</span> response:</span>
+<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">&quot;Flag found!&quot;</span>)</span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">&quot;Response content might contain the flag.&quot;</span>)</span>
+<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a>        <span class="cf">break</span></span>
+<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a>    <span class="cf">elif</span> <span class="st">&quot;too large&quot;</span> <span class="kw">in</span> response:</span>
+<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a>        high <span class="op">=</span> guess <span class="op">-</span> <span class="dv">1</span></span>
+<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a>    <span class="cf">elif</span> <span class="st">&quot;too small&quot;</span> <span class="kw">in</span> response:</span>
+<span id="cb2-49"><a href="#cb2-49" aria-hidden="true" tabindex="-1"></a>        low <span class="op">=</span> guess <span class="op">+</span> <span class="dv">1</span></span>
+<span id="cb2-50"><a href="#cb2-50" aria-hidden="true" tabindex="-1"></a>    <span class="cf">elif</span> <span class="st">&quot;you have a skill issue&quot;</span> <span class="kw">in</span> response:</span>
+<span id="cb2-51"><a href="#cb2-51" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">&quot;Skill issue&quot;</span>)</span>
+<span id="cb2-52"><a href="#cb2-52" aria-hidden="true" tabindex="-1"></a>        <span class="cf">break</span></span>
+<span id="cb2-53"><a href="#cb2-53" aria-hidden="true" tabindex="-1"></a>    <span class="cf">elif</span> <span class="st">&quot;you ran out of time&quot;</span> <span class="kw">in</span> response:</span>
+<span id="cb2-54"><a href="#cb2-54" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">&quot;Ran out of time&quot;</span>)</span>
+<span id="cb2-55"><a href="#cb2-55" aria-hidden="true" tabindex="-1"></a>        <span class="cf">break</span></span>
+<span id="cb2-56"><a href="#cb2-56" aria-hidden="true" tabindex="-1"></a>    <span class="cf">elif</span> <span class="st">&quot;you are no fun&quot;</span> <span class="kw">in</span> response:</span>
+<span id="cb2-57"><a href="#cb2-57" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">&quot;No fun&quot;</span>)</span>
+<span id="cb2-58"><a href="#cb2-58" aria-hidden="true" tabindex="-1"></a>        <span class="cf">break</span></span>
+<span id="cb2-59"><a href="#cb2-59" aria-hidden="true" tabindex="-1"></a>    <span class="cf">elif</span> <span class="st">&quot;give me a number&quot;</span> <span class="kw">in</span> response:</span>
+<span id="cb2-60"><a href="#cb2-60" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">&quot;Invalid input&quot;</span>)</span>
+<span id="cb2-61"><a href="#cb2-61" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-62"><a href="#cb2-62" aria-hidden="true" tabindex="-1"></a><span class="co"># Try to fetch more data if the flag might be hidden</span></span>
+<span id="cb2-63"><a href="#cb2-63" aria-hidden="true" tabindex="-1"></a><span class="cf">try</span>:</span>
+<span id="cb2-64"><a href="#cb2-64" aria-hidden="true" tabindex="-1"></a>    additional_response <span class="op">=</span> p.recvall().decode(<span class="st">&#39;utf-8&#39;</span>).strip()</span>
+<span id="cb2-65"><a href="#cb2-65" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="st">&quot;Additional response:&quot;</span>, additional_response)</span>
+<span id="cb2-66"><a href="#cb2-66" aria-hidden="true" tabindex="-1"></a><span class="cf">except</span>:</span>
+<span id="cb2-67"><a href="#cb2-67" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="st">&quot;Failed to fetch additional response&quot;</span>)</span>
+<span id="cb2-68"><a href="#cb2-68" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-69"><a href="#cb2-69" aria-hidden="true" tabindex="-1"></a><span class="co"># Close connection</span></span>
+<span id="cb2-70"><a href="#cb2-70" aria-hidden="true" tabindex="-1"></a>p.close()</span></code></pre></div>
+<p>For each iteration, we halve the search space, which is what <code>guess = (low + high) // 2</code> does. This isn't necessary, but helps to optimize the runtime of the code.</p>
+<p>If you want to better understand binary searches, <a href="https://medium.com/@nicola.moro2312/simply-explained-binary-search-6aeb97690526" target="_blank" rel="noopener">this</a> is a great article explaining it in better detail.</p>
+<p>flag: <code>n00bz{y0u_4r3_4_sm4rt_51l1_g0053}</code></p>
+
+    </div>
+
+    <nav class="post-nav" aria-label="more posts">
+        <a class="prev" href="/posts/litctf-jwt/" rel="prev"><span class="post-nav-label">‹ older</span>litCTF: JWT</a>
+        <a class="next" href="/posts/picoctf-vne/" rel="next"><span class="post-nav-label">newer ›</span>picoCTF: VNE</a>
+    </nav>
+</article>
+
+<aside class="post-aside" aria-label="on this page">
+    <ul class="aside-actions">
+        <li><a href="/posts/litctf-jwt/" title="older: litCTF: JWT" aria-label="older post">‹</a></li>
+        <li><a href="/posts/picoctf-vne/" title="newer: picoCTF: VNE" aria-label="newer post">›</a></li>
+        <li><a href="#top" class="to-top" title="back to top" aria-label="back to top">↑</a></li>
+    </ul>
+    <nav class="toc toc-side" aria-label="contents"><ol><li class="toc-h2"><a href="#breaking-down-the-challenge">Breaking down the challenge</a></li><li class="toc-h2"><a href="#the-solution">The Solution</a></li></ol></nav>
+</aside>
+
+        </main>
+        <footer class="site-footer">
+    <span class="footer-left">
+        <span>&copy; 2024–2026 river</span>
+        <button type="button" class="contact-button" aria-controls="toast" data-label="email" data-value="Y29udGFjdEByaXZlcnMuc2g=">email</button><button type="button" class="contact-button" aria-controls="toast" data-label="signal" data-value="cml2LjEzMzc=">signal</button><button type="button" class="contact-button" aria-controls="toast" data-label="pgp" data-value="QzREQiAxMjc3IDJCQjUgNDY1NyBFQjM3IDQxODQgOEE3QSAwOTQyIDFEQjQgODE4Mg==">pgp</button>
+    </span>
+    <span class="footer-links">
+        <a href="/atom.xml">atom</a>
+        <button type="button" class="scheme-toggle" title="switch colour scheme">scheme: <span class="scheme-name">river</span></button>
+    </span>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</footer>
+
+    </div>
+    <script src="/js/main.js" defer></script>
+    
+    
+    <script>
+    // oneko chases the cursor, so skip it on touch screens
+    (function () {
+      if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+      var s = document.createElement("script");
+      s.src = "/js/oneko.js";
+      document.body.appendChild(s);
+    })();
+    </script>
+    
+</body>
+</html>

@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en" data-scheme="river" data-schemes="river">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PicoCTF: Packer · river</title>
+    <meta name="description" content="Reverse engineering a simple linux executable">
+    <meta name="author" content="river">
+    <link rel="canonical" href="https://rivers.sh/posts/picoctf-packer/">
+    <meta property="og:site_name" content="river">
+    <meta property="og:title" content="PicoCTF: Packer">
+    <meta property="og:description" content="Reverse engineering a simple linux executable">
+    <meta property="og:url" content="https://rivers.sh/posts/picoctf-packer/">
+    <meta property="og:type" content="article">
+    <meta property="og:image" content="https://rivers.sh/images/og.jpg">
+    <meta name="twitter:card" content="summary">
+    <link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+    <link rel="alternate" type="application/atom+xml" title="river" href="/atom.xml">
+    <link rel="preload" href="/fonts/MesloLGS-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/syntax.css">
+    <script>
+    // Runs before first paint: restore the visitor's colour scheme and pick the
+    // background art, so neither flashes in after load.
+    (function () {
+      var d = document.documentElement;
+      try {
+        var s = localStorage.getItem("scheme");
+        if (s && d.getAttribute("data-schemes").split(" ").indexOf(s) !== -1) d.setAttribute("data-scheme", s);
+      } catch (e) {}
+      var art = ["/images/art/art1.jpg"];
+      if (!art.length) return;
+      var i = Math.floor(Math.random() * art.length);
+      try {
+        // don't show the same art twice in a row
+        var last = parseInt(localStorage.getItem("art-last"), 10);
+        if (art.length > 1 && i === last) i = (i + 1 + Math.floor(Math.random() * (art.length - 1))) % art.length;
+        localStorage.setItem("art-last", i);
+      } catch (e) {}
+      var a = typeof art[i] === "string" ? { src: art[i] } : art[i];
+      d.style.setProperty("--art", 'url("' + a.src + '")');
+      d.style.setProperty("--art-pos", a.position || "right bottom");
+      d.setAttribute("data-art", "");
+    })();
+    </script>
+</head>
+<body class="is-post">
+    <a class="skip-link" href="#main">skip to content</a>
+    <div class="page">
+        <header class="site-header">
+    <a class="site-title" href="/">river</a>
+    <nav class="site-nav" aria-label="site">
+        <ul><li><a href="/">home</a></li><li><a href="/blog/">blog</a></li><li><a href="/categories/">categories</a></li><li><a href="/tags/">tags</a></li><li><a href="/search/">search</a></li></ul>
+    </nav>
+</header>
+
+        <main id="main">
+<article class="post h-entry">
+    <header class="post-header">
+        <h1 class="post-title p-name">PicoCTF: Packer</h1>
+        <!-- no whitespace between items: the "|" separators supply the spacing -->
+        <div class="post-meta"><time class="dt-published" datetime="2024-10-30">Oct 30, 2024</time><span>2 min read</span><span class="post-cats"><a href="/categories/ctf/">CTF</a> › <a href="/categories/ctf/picoctf2024/">picoCTF2024</a> › <a href="/categories/ctf/picoctf2024/medium/">Medium</a></span><span class="post-tags"><a class="p-category" href="/tags/reverse-engineering/">#Reverse Engineering</a> <a class="p-category" href="/tags/upx/">#UPX</a> <a class="p-category" href="/tags/linux-executable/">#Linux Executable</a></span></div>
+        <p class="post-description p-summary">Reverse engineering a simple linux executable</p>
+    </header>
+
+    
+    <details class="toc toc-inline">
+        <summary>contents</summary>
+        <nav aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#understanding-the-file">Understanding the file</a></li><li class="toc-h2"><a href="#utilizing-upx">Utilizing UPX</a></li><li class="toc-h2"><a href="#finding-the-flag">Finding the flag</a></li><li class="toc-h2"><a href="#decrypting-the-flag">Decrypting the flag</a></li></ol></nav>
+    </details>
+    
+
+    <div class="prose e-content" tabindex="-1">
+
+<h2 id="challenge-info"><a href="#challenge-info" class="anchor">#</a>Challenge Info</h2>
+<p>Reverse this linux executable?</p>
+<p><a href="https://artifacts.picoctf.net/c_titan/21/out" target="_blank" rel="noopener">binary</a></p>
+<h2 id="understanding-the-file"><a href="#understanding-the-file" class="anchor">#</a>Understanding the file</h2>
+<p>The <code>file</code> command will give us some good foundational information as to what we're dealing with.</p>
+<pre class="terminal"><code>&gt; file out
+out: ELF 64-bit LSB executable, x86-64, version 1 (GNU/Linux), statically linked, no section header</code></pre>
+<p>For now, all we need to keep in mind:</p>
+<ul>
+<li>It's statically linked, so all of the required libraries are included in this binary, meaning it's all self-contained.</li>
+<li>The program is a 64-bit ELF <em>(Executable and Linkable Format)</em>.</li>
+</ul>
+<p>Next, we can run <code>strings out</code> to try and see the text inside the binary. For this command, I won't be showing the entire output, since most of it is gibberish, but there is one thing that should catch our eye, and it's all the way at the bottom of the output:</p>
+<pre class="terminal"><code>&gt; strings out
+UPX!
+UPX!</code></pre>
+<p>A quick google search on UPX led me to <a href="https://upx.github.io/" target="_blank" rel="noopener">this</a> site, the official UPX site, which states:</p>
+<blockquote>
+<p>"<em>UPX is a free, secure, portable, extendable, high-performance executable packer for several executable formats.</em>"</p>
+</blockquote>
+<p>This leads us to believe that this file has been packed using UPX, so let's try unpacking it.</p>
+<h2 id="utilizing-upx"><a href="#utilizing-upx" class="anchor">#</a>Utilizing UPX</h2>
+<p>To unpack (or uncompress) the binary, we're obviously going to need UPX, since that's what it was compressed with. install UPX on any APT based distros (Kali, Debian, Ubuntu, Mint, etc.), we can run <code>sudo apt install upx-ucl</code>.</p>
+<p>Now, we just need to find the command to unpack our binary. I personally ran <code>man upx</code>, <code>man</code> being short for <code>manual page</code>- but a quick google search should yield the same result:</p>
+<blockquote>
+<p>" Decompress:<br />
+All UPX supported file formats can be unpacked using the -d switch, eg. upx -d<br />
+yourfile.exe will uncompress the file you've just compressed."</p>
+</blockquote>
+<p>So, let's try it out:</p>
+<pre class="terminal"><code>&gt; upx -d out
+                       Ultimate Packer for eXecutables
+                          Copyright (C) 1996 - 2024
+UPX 4.2.4       Markus Oberhumer, Laszlo Molnar &amp; John Reiser    May 9th 2024
+
+        File size         Ratio      Format      Name
+   --------------------   ------   -----------   -----------
+[WARNING] bad b_info at 0x4b718
+
+[WARNING] ... recovery at 0x4b714
+
+    877724 &lt;-    336520   38.34%   linux/amd64   out
+
+Unpacked 1 file.</code></pre>
+<h2 id="finding-the-flag"><a href="#finding-the-flag" class="anchor">#</a>Finding the flag</h2>
+<p>Now that we've successfully unpacked the file, let's try running <code>strings</code> again, but this time we're going to combine it with <code>less</code>, a command similar to <code>cat</code>, but with more features (scrolling, searching).</p>
+<pre class="terminal"><code>&gt; strings out | less</code></pre>
+<p>To search for a specific string, enter a simple slash, <code>/</code>, and then type what you're looking for (<code>less</code> has familiar keybinds to <a href="https://www.vim.org/" target="_blank" rel="noopener">vim</a>)</p>
+<p>If you prefer <code>grep</code> that's alright too either way, we should see what we're looking for.</p>
+<pre class="terminal"><code>&gt; strings out | grep &quot;flag&quot;
+Password correct, please see flag: 7069636f4354467b5539585f556e5034636b314e365f42316e34526933535f33373161613966667d
+(mode_flags &amp; PRINTF_FORTIFY) != 0
+WARNING: Unsupported flag value(s) of 0x%x in DT_FLAGS_1.
+version == NULL || !(flags &amp; DL_LOOKUP_RETURN_NEWEST)
+flag.c
+_dl_x86_hwcap_flags
+_dl_stack_flags</code></pre>
+<p>Obviously, this looks nothing like our flag, so it's likely to be an encrypted flag.</p>
+<h2 id="decrypting-the-flag"><a href="#decrypting-the-flag" class="anchor">#</a>Decrypting the flag</h2>
+<p>A great tool for decryption is <a href="https://gchq.github.io/CyberChef/" target="_blank" rel="noopener">Cyberchef</a>. This can put our encrypted flag in the "input" field, and under "Operations" we can search for "Magic" and drag that into the "Recipe" field.</p>
+<p>flag: <code>picoCTF{U9X_UnP4ck1N6_B1n4Ri3S_371aa9ff}</code></p>
+
+    </div>
+
+    <nav class="post-nav" aria-label="more posts">
+        <a class="prev" href="/posts/picoctf-heap3/" rel="prev"><span class="post-nav-label">‹ older</span>picoCTF: Heap 3</a>
+        <a class="next" href="/posts/picoctf-crackmepy/" rel="next"><span class="post-nav-label">newer ›</span>picoCTF: Crackme-py</a>
+    </nav>
+</article>
+
+<aside class="post-aside" aria-label="on this page">
+    <ul class="aside-actions">
+        <li><a href="/posts/picoctf-heap3/" title="older: picoCTF: Heap 3" aria-label="older post">‹</a></li>
+        <li><a href="/posts/picoctf-crackmepy/" title="newer: picoCTF: Crackme-py" aria-label="newer post">›</a></li>
+        <li><a href="#top" class="to-top" title="back to top" aria-label="back to top">↑</a></li>
+    </ul>
+    <nav class="toc toc-side" aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#understanding-the-file">Understanding the file</a></li><li class="toc-h2"><a href="#utilizing-upx">Utilizing UPX</a></li><li class="toc-h2"><a href="#finding-the-flag">Finding the flag</a></li><li class="toc-h2"><a href="#decrypting-the-flag">Decrypting the flag</a></li></ol></nav>
+</aside>
+
+        </main>
+        <footer class="site-footer">
+    <span class="footer-left">
+        <span>&copy; 2024–2026 river</span>
+        <button type="button" class="contact-button" aria-controls="toast" data-label="email" data-value="Y29udGFjdEByaXZlcnMuc2g=">email</button><button type="button" class="contact-button" aria-controls="toast" data-label="signal" data-value="cml2LjEzMzc=">signal</button><button type="button" class="contact-button" aria-controls="toast" data-label="pgp" data-value="QzREQiAxMjc3IDJCQjUgNDY1NyBFQjM3IDQxODQgOEE3QSAwOTQyIDFEQjQgODE4Mg==">pgp</button>
+    </span>
+    <span class="footer-links">
+        <a href="/atom.xml">atom</a>
+        <button type="button" class="scheme-toggle" title="switch colour scheme">scheme: <span class="scheme-name">river</span></button>
+    </span>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</footer>
+
+    </div>
+    <script src="/js/main.js" defer></script>
+    
+    
+    <script>
+    // oneko chases the cursor, so skip it on touch screens
+    (function () {
+      if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+      var s = document.createElement("script");
+      s.src = "/js/oneko.js";
+      document.body.appendChild(s);
+    })();
+    </script>
+    
+</body>
+</html>
