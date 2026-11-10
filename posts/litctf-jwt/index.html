@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en" data-scheme="river" data-schemes="river">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>litCTF: JWT · river</title>
+    <meta name="description" content="Exploiting JSON Web Tokens">
+    <meta name="author" content="river">
+    <link rel="canonical" href="https://rivers.sh/posts/litctf-jwt/">
+    <meta property="og:site_name" content="river">
+    <meta property="og:title" content="litCTF: JWT">
+    <meta property="og:description" content="Exploiting JSON Web Tokens">
+    <meta property="og:url" content="https://rivers.sh/posts/litctf-jwt/">
+    <meta property="og:type" content="article">
+    <meta property="og:image" content="https://rivers.sh/images/og.jpg">
+    <meta name="twitter:card" content="summary">
+    <link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+    <link rel="alternate" type="application/atom+xml" title="river" href="/atom.xml">
+    <link rel="preload" href="/fonts/MesloLGS-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/syntax.css">
+    <script>
+    // Runs before first paint: restore the visitor's colour scheme and pick the
+    // background art, so neither flashes in after load.
+    (function () {
+      var d = document.documentElement;
+      try {
+        var s = localStorage.getItem("scheme");
+        if (s && d.getAttribute("data-schemes").split(" ").indexOf(s) !== -1) d.setAttribute("data-scheme", s);
+      } catch (e) {}
+      var art = ["/images/art/art1.jpg"];
+      if (!art.length) return;
+      var i = Math.floor(Math.random() * art.length);
+      try {
+        // don't show the same art twice in a row
+        var last = parseInt(localStorage.getItem("art-last"), 10);
+        if (art.length > 1 && i === last) i = (i + 1 + Math.floor(Math.random() * (art.length - 1))) % art.length;
+        localStorage.setItem("art-last", i);
+      } catch (e) {}
+      var a = typeof art[i] === "string" ? { src: art[i] } : art[i];
+      d.style.setProperty("--art", 'url("' + a.src + '")');
+      d.style.setProperty("--art-pos", a.position || "right bottom");
+      d.setAttribute("data-art", "");
+    })();
+    </script>
+</head>
+<body class="is-post">
+    <a class="skip-link" href="#main">skip to content</a>
+    <div class="page">
+        <header class="site-header">
+    <a class="site-title" href="/">river</a>
+    <nav class="site-nav" aria-label="site">
+        <ul><li><a href="/">home</a></li><li><a href="/blog/">blog</a></li><li><a href="/categories/">categories</a></li><li><a href="/tags/">tags</a></li><li><a href="/search/">search</a></li></ul>
+    </nav>
+</header>
+
+        <main id="main">
+<article class="post h-entry">
+    <header class="post-header">
+        <h1 class="post-title p-name">litCTF: JWT</h1>
+        <!-- no whitespace between items: the "|" separators supply the spacing -->
+        <div class="post-meta"><time class="dt-published" datetime="2024-08-13">Aug 13, 2024</time><span>5 min read</span><span class="post-cats"><a href="/categories/ctf/">CTF</a> › <a href="/categories/ctf/litctf2024/">LITCTF2024</a> › <a href="/categories/ctf/litctf2024/easy/">Easy</a></span><span class="post-tags"><a class="p-category" href="/tags/web-exploitation/">#Web Exploitation</a> <a class="p-category" href="/tags/json/">#JSON</a></span></div>
+        <p class="post-description p-summary">Exploiting JSON Web Tokens</p>
+    </header>
+
+    
+    <details class="toc toc-inline">
+        <summary>contents</summary>
+        <nav aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#understanding-what-a-jwt-is">Understanding what a JWT is</a></li><li class="toc-h2"><a href="#attempts">Attempts</a></li><li class="toc-h2"><a href="#getting-there">Getting there...</a></li><li class="toc-h2"><a href="#solution">Solution</a></li><li class="toc-h2"><a href="#challenge-info-1">Challenge Info</a></li><li class="toc-h2"><a href="#preface">Preface</a></li><li class="toc-h2"><a href="#trying-the-first-solution">Trying the first solution</a></li><li class="toc-h2"><a href="#inspecting-the-attached-typescript-file">Inspecting the attached TypeScript file</a></li><li class="toc-h2"><a href="#solution-1">Solution</a></li></ol></nav>
+    </details>
+    
+
+    <div class="prose e-content" tabindex="-1">
+
+<h1 id="jwt-1">JWT-1</h1>
+<h2 id="challenge-info"><a href="#challenge-info" class="anchor">#</a>Challenge Info</h2>
+<p><code>I just made a website. Since cookies seem to be a thing of the old days, I updated my authentication! With these modern web technologies, I will never have to deal with sessions again. Come try it out at http://litctf.org:31781/.</code></p>
+<h2 id="understanding-what-a-jwt-is"><a href="#understanding-what-a-jwt-is" class="anchor">#</a>Understanding what a JWT is</h2>
+<p>The link that I'm given for this challenge is <code>http://litctf.org:31781/</code>. Before even messing with it though, I googled "JWT" to get some further context.</p>
+<p>I found <a href="https://en.wikipedia.org/wiki/JSON_web_Token" target="_blank" rel="noopener">this</a> Wikipedia page. The quick summary, however, is this:</p>
+<p><code>JSON Web Token is a proposed Internet standard for creating data with optional signature and/or optional encryption whose payloads holds JSON that asserts some number of claims. The tokens are signed either using a private secret or a public/private key.</code></p>
+<h2 id="attempts"><a href="#attempts" class="anchor">#</a>Attempts</h2>
+<p>Next, I visited the link, where I was greeted with this:</p>
+<p><img src="/images/JWT-1/getflag.png" alt="Default page for the site" /></p>
+<p>Naturally, my first response was to hit the giant button that screams "GET FLAG". This obviously didn't provide anything (that'd be too easy, and that's no fun).</p>
+<p><img src="/images/JWT-1/unauthorized.png" alt="unauthorized screen" /></p>
+<p>Then, I want back to the "Log in" page, and decided to log in with the user <code>admin</code> and the password <code>admin</code>, since alot of bad sites will use these as the default. This didn't work though, and I started to just try a bunch of different combinations, but each returned the same result:</p>
+<p><img src="/images/JWT-1/unauthorized.png" alt="login screen" /></p>
+<h2 id="getting-there"><a href="#getting-there" class="anchor">#</a>Getting there...</h2>
+<p>Finally realizing this challenge wouldn't be <strong>THAT</strong> easy, I opened up <a href="https://en.wikipedia.org/wiki/Burp_Suite" target="_blank" rel="noopener">Burp Suite</a> to try and map out the site (maybe there's a hidden directory!).</p>
+<p>I couldn't find any hidden directories though, so I altered my approach, instead of trying to map out the site, I tried intercepting through Burpsuite.</p>
+<p><img src="/images/JWT-1/intercept.png" alt="intercept on burpsuite" /></p>
+<p>Mostly, it looked like a normal site, but one thing did catch my eye- a cookie with the value of <code>eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoiMTIzIiwiYWRtaW4iOmZhbHNlfQ.0Pi%2FH9Rz7ylX%2FM1MwPS469hjUu3b9gV0%2Fl8EW6roQC0</code>:</p>
+<p><img src="/images/JWT-1/burpsuite.png" alt="burpsuite screenshot" /></p>
+<p>This immediately led me to think: "Can I manipulate this token to get admin?.." So, I went back to the "GET FLAG" screen, and decided to inspect element to take a look at the cookies:</p>
+<p><img src="/images/JWT-1/cookies.png" alt="cookies" /></p>
+<p>For awhile, I messed with the <code>value</code> field. I tried changing it to <code>admin</code>, <code>123</code>, etc. Eventually, the correlation struck me- the "value" is actually a JWT (JSON Web Token)</p>
+<h2 id="solution"><a href="#solution" class="anchor">#</a>Solution</h2>
+<p>One of the first results when googling "JWT" is a site called <a href="https://jwt.io/" target="_blank" rel="noopener">jwt.io</a>. This site lets us decode and modify JWT tokens, so it's crucial to beating the challenge:</p>
+<p><img src="/images/JWT-1/jwtio.png" alt="jwt.io" /></p>
+<p>I decided to put the token I had into the "Encoded" field, and noticed that the information in the "PAYLOAD" field reflected the login credentials I had tried earlier.</p>
+<p><img src="/images/JWT-1/jwtpayload.png" alt="payloads" /></p>
+<p>From there, I tried modifying the "admin" value from <code>false</code> to <code>true</code>, and noticed that the encoded field automatically updated to reflect the changes.</p>
+<p><img src="/images/JWT-1/newjwt.png" alt="new token" /></p>
+<p>Then, I went back to Burpsuite intercept, and replaced the old cookie token with the <strong>NEW</strong> token (which is the same token, but with we modified <code>admin: true</code>), which for me was. I hit "forward", and got the flag.</p>
+<p>flag: <code>LITCTF{o0ps_forg0r_To_v3rify_1re4DV9}</code></p>
+<h1 id="jwt-2">JWT-2</h1>
+<h2 id="challenge-info-1"><a href="#challenge-info-1" class="anchor">#</a>Challenge Info</h2>
+<p><code>its like jwt-1 but this one is harder. URL: http://litctf.org:31777/</code></p>
+<p>attached: <a href="https://drive.google.com/uc?export=downloads&amp;id=18gNp6DphcZBI5UmGjKsXhCkZvF1aIB6F&amp;name=index.ts" target="_blank" rel="noopener">index.ts</a></p>
+<p><img src="/images/JWT-2/challenge.png" alt="JWT-2" /></p>
+<h2 id="preface"><a href="#preface" class="anchor">#</a>Preface</h2>
+<p>While this <em>is</em> a separate challenge, its fundamentals are heavily derived from the <a href="/posts/jwt1">first</a> JWT challenge, which I heavily recommend you read first.</p>
+<h2 id="trying-the-first-solution"><a href="#trying-the-first-solution" class="anchor">#</a>Trying the first solution</h2>
+<p>Since this is a continuation of the <strong>first</strong> JWT challenge, I figured I'd try the same solution. A quick recap on how I beat the first one:</p>
+<ol type="1">
+<li>Register an account on the given site</li>
+<li>Use Burpsuite intercept to capture the JWT associated with our account</li>
+<li>Use <a href="https://jwt.io" target="_blank" rel="noopener">jwt.io</a> to read the contents of our JWT</li>
+<li>Modify <code>admin</code> so that it equals to <code>true</code></li>
+<li>Access the "GET FLAG" button with our <strong>new</strong> JWT and acquire flag</li>
+</ol>
+<p>For this challenge, while I <strong>was</strong> able to capture the JWT token and modify it to have <code>admin</code> set to <code>true</code>, upon actually using it, I was greeted with this:</p>
+<p><img src="/images/JWT-2/unauthorized.png" alt="unauthorized" /></p>
+<h2 id="inspecting-the-attached-typescript-file"><a href="#inspecting-the-attached-typescript-file" class="anchor">#</a>Inspecting the attached TypeScript file</h2>
+<p>By now, I realized this challenge wouldn't be as simple as the last one, so I decided to skim through the attached TypeScript file, which I'll leave down below:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode ts"><code class="sourceCode typescript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> express <span class="im">from</span> <span class="st">&quot;express&quot;</span><span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> cookieParser <span class="im">from</span> <span class="st">&quot;cookie-parser&quot;</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> path <span class="im">from</span> <span class="st">&quot;path&quot;</span><span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> fs <span class="im">from</span> <span class="st">&quot;fs&quot;</span><span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> crypto <span class="im">from</span> <span class="st">&quot;crypto&quot;</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> accounts<span class="op">:</span> [<span class="dt">string</span><span class="op">,</span> <span class="dt">string</span>][] <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> jwtSecret <span class="op">=</span> <span class="st">&quot;xook&quot;</span><span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> jwtHeader <span class="op">=</span> <span class="bu">Buffer</span><span class="op">.</span><span class="fu">from</span>(</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  <span class="bu">JSON</span><span class="op">.</span><span class="fu">stringify</span>({ alg<span class="op">:</span> <span class="st">&quot;HS256&quot;</span><span class="op">,</span> typ<span class="op">:</span> <span class="st">&quot;JWT&quot;</span> })<span class="op">,</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;utf-8&quot;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">toString</span>(<span class="st">&quot;base64&quot;</span>)</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">replace</span>(<span class="ss">/=/g</span><span class="op">,</span> <span class="st">&quot;&quot;</span>)<span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> sign <span class="op">=</span> (payloads<span class="op">:</span> <span class="dt">object</span>) <span class="kw">=&gt;</span> {</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> jwtPayloads <span class="op">=</span> <span class="bu">Buffer</span><span class="op">.</span><span class="fu">from</span>(<span class="bu">JSON</span><span class="op">.</span><span class="fu">stringify</span>(payloads)<span class="op">,</span> <span class="st">&quot;utf-8&quot;</span>)</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    <span class="op">.</span><span class="fu">toString</span>(<span class="st">&quot;base64&quot;</span>)</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    <span class="op">.</span><span class="fu">replace</span>(<span class="ss">/=/g</span><span class="op">,</span> <span class="st">&quot;&quot;</span>)<span class="op">;</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> signature <span class="op">=</span> crypto<span class="op">.</span><span class="fu">createHmac</span>(<span class="st">&#39;sha256&#39;</span><span class="op">,</span> jwtSecret)<span class="op">.</span><span class="fu">update</span>(jwtHeader <span class="op">+</span> <span class="st">&#39;.&#39;</span> <span class="op">+</span> jwtPayloads)<span class="op">.</span><span class="fu">digest</span>(<span class="st">&#39;base64&#39;</span>)<span class="op">.</span><span class="fu">replace</span>(<span class="ss">/=/g</span><span class="op">,</span> <span class="st">&#39;&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> jwtHeader <span class="op">+</span> <span class="st">&quot;.&quot;</span> <span class="op">+</span> jwtPayloads <span class="op">+</span> <span class="st">&quot;.&quot;</span> <span class="op">+</span> signature<span class="op">;</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> app <span class="op">=</span> <span class="fu">express</span>()<span class="op">;</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> port <span class="op">=</span> <span class="bu">process</span><span class="op">.</span><span class="at">env</span><span class="op">.</span><span class="at">PORT</span> <span class="op">||</span> <span class="dv">3000</span><span class="op">;</span></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>app<span class="op">.</span><span class="fu">listen</span>(port<span class="op">,</span> () <span class="kw">=&gt;</span></span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>  <span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="st">&quot;server up on http://localhost:&quot;</span> <span class="op">+</span> port<span class="op">.</span><span class="fu">toString</span>())</span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>)<span class="op">;</span></span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a>app<span class="op">.</span><span class="fu">use</span>(<span class="fu">cookieParser</span>())<span class="op">;</span></span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a>app<span class="op">.</span><span class="fu">use</span>(express<span class="op">.</span><span class="fu">urlencoded</span>({ extended<span class="op">:</span> <span class="kw">true</span> }))<span class="op">;</span></span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a>app<span class="op">.</span><span class="fu">use</span>(express<span class="op">.</span><span class="fu">static</span>(path<span class="op">.</span><span class="fu">join</span>(<span class="bu">__dirname</span><span class="op">,</span> <span class="st">&quot;site&quot;</span>)))<span class="op">;</span></span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a>app<span class="op">.</span><span class="fu">get</span>(<span class="st">&quot;/flag&quot;</span><span class="op">,</span> (req<span class="op">,</span> res) <span class="kw">=&gt;</span> {</span>
+<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="op">!</span>req<span class="op">.</span><span class="at">cookies</span><span class="op">.</span><span class="at">token</span>) {</span>
+<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a>    <span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="st">&#39;no auth&#39;</span>)</span>
+<span id="cb1-42"><a href="#cb1-42" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> res<span class="op">.</span><span class="fu">status</span>(<span class="dv">403</span>)<span class="op">.</span><span class="fu">send</span>(<span class="st">&quot;Unauthorized&quot;</span>)<span class="op">;</span></span>
+<span id="cb1-43"><a href="#cb1-43" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb1-44"><a href="#cb1-44" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-45"><a href="#cb1-45" aria-hidden="true" tabindex="-1"></a>  <span class="cf">try</span> {</span>
+<span id="cb1-46"><a href="#cb1-46" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> token <span class="op">=</span> req<span class="op">.</span><span class="at">cookies</span><span class="op">.</span><span class="at">token</span><span class="op">;</span></span>
+<span id="cb1-47"><a href="#cb1-47" aria-hidden="true" tabindex="-1"></a>    <span class="co">// split up token</span></span>
+<span id="cb1-48"><a href="#cb1-48" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> [header<span class="op">,</span> payloads<span class="op">,</span> signature] <span class="op">=</span> token<span class="op">.</span><span class="fu">split</span>(<span class="st">&quot;.&quot;</span>)<span class="op">;</span></span>
+<span id="cb1-49"><a href="#cb1-49" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (<span class="op">!</span>header <span class="op">||</span> <span class="op">!</span>payloads <span class="op">||</span> <span class="op">!</span>signature) {</span>
+<span id="cb1-50"><a href="#cb1-50" aria-hidden="true" tabindex="-1"></a>      <span class="cf">return</span> res<span class="op">.</span><span class="fu">status</span>(<span class="dv">403</span>)<span class="op">.</span><span class="fu">send</span>(<span class="st">&quot;Unauthorized&quot;</span>)<span class="op">;</span></span>
+<span id="cb1-51"><a href="#cb1-51" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-52"><a href="#cb1-52" aria-hidden="true" tabindex="-1"></a>    <span class="bu">Buffer</span><span class="op">.</span><span class="fu">from</span>(header<span class="op">,</span> <span class="st">&quot;base64&quot;</span>)<span class="op">.</span><span class="fu">toString</span>()<span class="op">;</span></span>
+<span id="cb1-53"><a href="#cb1-53" aria-hidden="true" tabindex="-1"></a>    <span class="co">// decode payloads</span></span>
+<span id="cb1-54"><a href="#cb1-54" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> decodedPayloads <span class="op">=</span> <span class="bu">Buffer</span><span class="op">.</span><span class="fu">from</span>(payloads<span class="op">,</span> <span class="st">&quot;base64&quot;</span>)<span class="op">.</span><span class="fu">toString</span>()<span class="op">;</span></span>
+<span id="cb1-55"><a href="#cb1-55" aria-hidden="true" tabindex="-1"></a>    <span class="co">// parse payloads</span></span></code></pre></div>
+<p>Just to highlight what this code does:</p>
+<p><code>const [header, payloads, signature] = token.split(".");</code></p>
+<ul>
+<li>splits the JWT token into its three parts; header, payloads, and signature, and the <code>.</code> acts as a delimiter.</li>
+</ul>
+<p><code>if (!req.cookies.token)</code></p>
+<ul>
+<li>checks if the token is missing, and responds with <code>403 Unauthorized</code> if it is.</li>
+</ul>
+<p><code>Buffer.from(header,"base64").toString()</code> <code>Buffer.from(payloads,"base64").toString()</code></p>
+<ul>
+<li>The header and payloads are decoded from base64 to their original string format.</li>
+</ul>
+<p>However, what's really making us hit our head is the following:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode js"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> sign <span class="op">=</span> (payloads<span class="op">:</span> object) <span class="kw">=&gt;</span> {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> jwtPayloads <span class="op">=</span> <span class="bu">Buffer</span><span class="op">.</span><span class="fu">from</span>(<span class="bu">JSON</span><span class="op">.</span><span class="fu">stringify</span>(payloads)<span class="op">,</span> <span class="st">&quot;utf-8&quot;</span>)</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="op">.</span><span class="fu">toString</span>(<span class="st">&quot;base64&quot;</span>)</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="op">.</span><span class="fu">replace</span>(<span class="ss">/=/g</span><span class="op">,</span> <span class="st">&quot;&quot;</span>)<span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> signature <span class="op">=</span> crypto<span class="op">.</span><span class="fu">createHmac</span>(<span class="st">&#39;sha256&#39;</span><span class="op">,</span> jwtSecret)<span class="op">.</span><span class="fu">update</span>(jwtHeader <span class="op">+</span> <span class="st">&#39;.&#39;</span> <span class="op">+</span> jwtPayloads)<span class="op">.</span><span class="fu">digest</span>(<span class="st">&#39;base64&#39;</span>)<span class="op">.</span><span class="fu">replace</span>(<span class="ss">/=/g</span><span class="op">,</span> <span class="st">&#39;&#39;</span>)<span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> jwtHeader <span class="op">+</span> <span class="st">&quot;.&quot;</span> <span class="op">+</span> jwtPayloads <span class="op">+</span> <span class="st">&quot;.&quot;</span> <span class="op">+</span> signature<span class="op">;</span></span></code></pre></div>
+<p>This removes the <code>=</code> characters from both the base64-encoded payloads and signature. This is normal in JWTs though, and doesn't affect the token's validity. The main issue here isn't the removal of padding, but making sure that the token <strong>we</strong> craft adheres to this format.</p>
+<h2 id="solution-1"><a href="#solution-1" class="anchor">#</a>Solution</h2>
+<p>The payloads that I came up with:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode js"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> crypto <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;crypto&#39;</span>)<span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> jwtSecret <span class="op">=</span> <span class="st">&quot;xook&quot;</span><span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> jwtHeader <span class="op">=</span> <span class="bu">Buffer</span><span class="op">.</span><span class="fu">from</span>(</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="bu">JSON</span><span class="op">.</span><span class="fu">stringify</span>({ <span class="dt">alg</span><span class="op">:</span> <span class="st">&quot;HS256&quot;</span><span class="op">,</span> <span class="dt">typ</span><span class="op">:</span> <span class="st">&quot;JWT&quot;</span> })<span class="op">,</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;utf-8&quot;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">toString</span>(<span class="st">&quot;base64&quot;</span>)</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">replace</span>(<span class="ss">/=/g</span><span class="op">,</span> <span class="st">&quot;&quot;</span>)<span class="op">;</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> sign <span class="op">=</span> (payloads) <span class="kw">=&gt;</span> {</span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> jwtPayloads <span class="op">=</span> <span class="bu">Buffer</span><span class="op">.</span><span class="fu">from</span>(<span class="bu">JSON</span><span class="op">.</span><span class="fu">stringify</span>(payloads)<span class="op">,</span> <span class="st">&quot;utf-8&quot;</span>)</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>    <span class="op">.</span><span class="fu">toString</span>(<span class="st">&quot;base64&quot;</span>)</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>    <span class="op">.</span><span class="fu">replace</span>(<span class="ss">/=/g</span><span class="op">,</span> <span class="st">&quot;&quot;</span>)<span class="op">;</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> signature <span class="op">=</span> crypto</span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>    <span class="op">.</span><span class="fu">createHmac</span>(<span class="st">&quot;sha256&quot;</span><span class="op">,</span> jwtSecret)</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>    <span class="op">.</span><span class="fu">update</span>(jwtHeader <span class="op">+</span> <span class="st">&quot;.&quot;</span> <span class="op">+</span> jwtPayloads)</span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>    <span class="op">.</span><span class="fu">digest</span>(<span class="st">&quot;base64&quot;</span>)</span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>    <span class="op">.</span><span class="fu">replace</span>(<span class="ss">/=/g</span><span class="op">,</span> <span class="st">&quot;&quot;</span>)<span class="op">;</span></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> jwtHeader <span class="op">+</span> <span class="st">&quot;.&quot;</span> <span class="op">+</span> jwtPayloads <span class="op">+</span> <span class="st">&quot;.&quot;</span> <span class="op">+</span> signature<span class="op">;</span></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>}<span class="op">;</span></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> payloads <span class="op">=</span> { <span class="dt">name</span><span class="op">:</span> <span class="st">&quot;your_username&quot;</span><span class="op">,</span> <span class="dt">admin</span><span class="op">:</span> <span class="kw">true</span> }<span class="op">;</span></span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> forgedToken <span class="op">=</span> <span class="fu">sign</span>(payloads)<span class="op">;</span></span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(forgedToken)<span class="op">;</span> <span class="co">// This is the token you will use.</span></span></code></pre></div>
+<p>This payloads creates a token using the <code>xook</code> secret, modifies <code>admin</code> to <code>true</code>, and removes all padding (<code>=</code> characters).</p>
+<p>Then, I replaced the old token in Burpsuite intercept with the new one: <code>eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoieW91cl91c2VybmFtZSIsImFkbWluIjp0cnVlfQ.xwxnk5ogziOC8xlMNuolHBuQDbefnLA9rATCeS7fS+s</code>, and hit "forward".</p>
+<p><img src="/images/JWT-2/flag.png" alt="flag" /></p>
+<p>flag: <code>LITCTF{v3rifyed_thI3_Tlme_1re4DV9}</code></p>
+
+    </div>
+
+    <nav class="post-nav" aria-label="more posts">
+        
+        <a class="next" href="/posts/n00bzctf-sillygoose/" rel="next"><span class="post-nav-label">newer ›</span>N00bzCTF: Sillygoose</a>
+    </nav>
+</article>
+
+<aside class="post-aside" aria-label="on this page">
+    <ul class="aside-actions">
+        
+        <li><a href="/posts/n00bzctf-sillygoose/" title="newer: N00bzCTF: Sillygoose" aria-label="newer post">›</a></li>
+        <li><a href="#top" class="to-top" title="back to top" aria-label="back to top">↑</a></li>
+    </ul>
+    <nav class="toc toc-side" aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#understanding-what-a-jwt-is">Understanding what a JWT is</a></li><li class="toc-h2"><a href="#attempts">Attempts</a></li><li class="toc-h2"><a href="#getting-there">Getting there...</a></li><li class="toc-h2"><a href="#solution">Solution</a></li><li class="toc-h2"><a href="#challenge-info-1">Challenge Info</a></li><li class="toc-h2"><a href="#preface">Preface</a></li><li class="toc-h2"><a href="#trying-the-first-solution">Trying the first solution</a></li><li class="toc-h2"><a href="#inspecting-the-attached-typescript-file">Inspecting the attached TypeScript file</a></li><li class="toc-h2"><a href="#solution-1">Solution</a></li></ol></nav>
+</aside>
+
+        </main>
+        <footer class="site-footer">
+    <span class="footer-left">
+        <span>&copy; 2024–2026 river</span>
+        <button type="button" class="contact-button" aria-controls="toast" data-label="email" data-value="Y29udGFjdEByaXZlcnMuc2g=">email</button><button type="button" class="contact-button" aria-controls="toast" data-label="signal" data-value="cml2LjEzMzc=">signal</button><button type="button" class="contact-button" aria-controls="toast" data-label="pgp" data-value="QzREQiAxMjc3IDJCQjUgNDY1NyBFQjM3IDQxODQgOEE3QSAwOTQyIDFEQjQgODE4Mg==">pgp</button>
+    </span>
+    <span class="footer-links">
+        <a href="/atom.xml">atom</a>
+        <button type="button" class="scheme-toggle" title="switch colour scheme">scheme: <span class="scheme-name">river</span></button>
+    </span>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</footer>
+
+    </div>
+    <script src="/js/main.js" defer></script>
+    
+    
+    <script>
+    // oneko chases the cursor, so skip it on touch screens
+    (function () {
+      if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+      var s = document.createElement("script");
+      s.src = "/js/oneko.js";
+      document.body.appendChild(s);
+    })();
+    </script>
+    
+</body>
+</html>
